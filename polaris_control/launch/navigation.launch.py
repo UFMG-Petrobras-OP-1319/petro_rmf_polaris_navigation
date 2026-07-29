@@ -16,6 +16,8 @@ def _launch_setup(context, *_args, **_kwargs):
     params_file = LaunchConfiguration('params_file').perform(context)
     tf_robot_pose = LaunchConfiguration('tf_robot_pose').perform(context)
     tf_reference_frame = LaunchConfiguration('tf_reference_frame').perform(context)
+    speed_ref = LaunchConfiguration('speed_ref').perform(context)
+    convergence_gain = LaunchConfiguration('convergence_gain').perform(context)
     add_measurement_noise = LaunchConfiguration('add_measurement_noise').perform(context).lower() == 'true'
     noise_mean_position = float(LaunchConfiguration('noise_mean_position').perform(context))
     noise_stddev_position = float(LaunchConfiguration('noise_stddev_position').perform(context))
@@ -50,6 +52,24 @@ def _launch_setup(context, *_args, **_kwargs):
         _logger.warning(
             '⚠️  tf_reference_frame not set via launch arg — '
             'falling back to value in %s. Pass tf_reference_frame:=<frame> to override.',
+            params_file,
+        )
+
+    if speed_ref:
+        overrides['speed_ref'] = float(speed_ref)
+    else:
+        _logger.warning(
+            '⚠️  speed_ref not set via launch arg — '
+            'falling back to value in %s. Pass speed_ref:=<value> to override.',
+            params_file,
+        )
+
+    if convergence_gain:
+        overrides['convergence_gain'] = float(convergence_gain)
+    else:
+        _logger.warning(
+            '⚠️  convergence_gain not set via launch arg — '
+            'falling back to value in %s. Pass convergence_gain:=<value> to override.',
             params_file,
         )
 
@@ -126,6 +146,28 @@ def generate_launch_description():
         ),
     )
 
+    # Reference cruise speed for the vector-field controller (m/s).
+    # Empty string means: use whatever is set in the params YAML.
+    declare_speed_ref = DeclareLaunchArgument(
+        'speed_ref',
+        default_value='',
+        description=(
+            'Reference cruise speed for the vector-field controller (m/s). '
+            'If empty, the value from params_file YAML is used.'
+        ),
+    )
+
+    # Convergence gain shaping how fast the field pulls the robot onto the path.
+    # Empty string means: use whatever is set in the params YAML.
+    declare_convergence_gain = DeclareLaunchArgument(
+        'convergence_gain',
+        default_value='',
+        description=(
+            'Convergence gain for the vector-field controller. '
+            'If empty, the value from params_file YAML is used.'
+        ),
+    )
+
     declare_add_measurement_noise = DeclareLaunchArgument(
         'add_measurement_noise',
         default_value='false',
@@ -160,6 +202,8 @@ def generate_launch_description():
         declare_params_file,
         declare_tf_robot_pose,
         declare_tf_reference_frame,
+        declare_speed_ref,
+        declare_convergence_gain,
         declare_add_measurement_noise,
         declare_noise_mean_position,
         declare_noise_stddev_position,
