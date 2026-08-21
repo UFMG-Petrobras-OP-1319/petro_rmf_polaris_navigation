@@ -24,6 +24,9 @@ def _launch_setup(context, *args, **kwargs):
     use_sim_time = LaunchConfiguration('use_sim_time')
     params_file = LaunchConfiguration('params_file').perform(context)
     robot_namespace = LaunchConfiguration('robot_namespace').perform(context)
+    namespace_tf = (
+        LaunchConfiguration('namespace_tf').perform(context).lower() == 'true'
+    )
     kp_pos = float(LaunchConfiguration('kp_pos').perform(context))
     kp_orient = float(LaunchConfiguration('kp_orient').perform(context))
     tf_robot_pose = LaunchConfiguration('tf_robot_pose').perform(context)
@@ -73,6 +76,11 @@ def _launch_setup(context, *args, **kwargs):
             ),
         })
 
+    tf_remappings = (
+        [('/tf', 'tf'), ('/tf_static', 'tf_static')]
+        if robot_namespace and namespace_tf else []
+    )
+
     feedback_node = Node(
         package=package_name,
         executable='follower_control.py',
@@ -84,6 +92,7 @@ def _launch_setup(context, *args, **kwargs):
             {'use_sim_time': use_sim_time},
             overrides,
         ],
+        remappings=tf_remappings,
     )
 
     return [feedback_node]
@@ -107,6 +116,12 @@ def generate_launch_description():
         'robot_namespace',
         default_value='',
         description='Robot namespace used when multiple stacks share a domain.',
+    )
+
+    declare_namespace_tf = DeclareLaunchArgument(
+        'namespace_tf',
+        default_value='false',
+        description='Remap /tf and /tf_static beneath robot_namespace.',
     )
 
     # Proportional gain for linear velocity in CONTROL_POSITION (feedback-linearization)
@@ -149,6 +164,7 @@ def generate_launch_description():
         declare_use_sim_time,
         declare_params_file,
         declare_robot_namespace,
+        declare_namespace_tf,
         declare_kp_pos,
         declare_kp_orient,
         declare_tf_robot_pose,
