@@ -23,6 +23,9 @@ def _launch_setup(context, *_args, **_kwargs):
     use_sim_time = LaunchConfiguration('use_sim_time')
     params_file = LaunchConfiguration('params_file').perform(context)
     robot_namespace = LaunchConfiguration('robot_namespace').perform(context)
+    namespace_tf = (
+        LaunchConfiguration('namespace_tf').perform(context).lower() == 'true'
+    )
     tf_robot_pose = LaunchConfiguration('tf_robot_pose').perform(context)
     tf_reference_frame = LaunchConfiguration('tf_reference_frame').perform(context)
     speed_ref = LaunchConfiguration('speed_ref').perform(context)
@@ -127,6 +130,11 @@ def _launch_setup(context, *_args, **_kwargs):
             ),
         })
 
+    tf_remappings = (
+        [('/tf', 'tf'), ('/tf_static', 'tf_static')]
+        if robot_namespace and namespace_tf else []
+    )
+
     controller_node = Node(
         package=package_name,
         executable='vector_field_controller',
@@ -138,6 +146,7 @@ def _launch_setup(context, *_args, **_kwargs):
             {'use_sim_time': use_sim_time},
             controller_overrides,
         ],
+        remappings=tf_remappings,
     )
 
     planner_node = Node(
@@ -151,6 +160,7 @@ def _launch_setup(context, *_args, **_kwargs):
             {'use_sim_time': use_sim_time},
             planner_overrides,
         ],
+        remappings=tf_remappings,
     )
 
     map_frame = _robot_name(robot_namespace, 'map').lstrip('/')
@@ -164,6 +174,7 @@ def _launch_setup(context, *_args, **_kwargs):
         name='static_map_to_odom_publisher',
         namespace=robot_namespace,
         arguments=['0', '0', '0', '0', '0', '0', map_frame, odom_frame],
+        remappings=tf_remappings,
     )
 
     static_tf_body_to_livox_frame = Node(
@@ -175,6 +186,7 @@ def _launch_setup(context, *_args, **_kwargs):
         arguments=[
             '0', '0', '0.32', '0', '0', '0', body_frame, livox_frame
         ],
+        remappings=tf_remappings,
     )
 
     return [
@@ -203,6 +215,12 @@ def generate_launch_description():
         'robot_namespace',
         default_value='',
         description='Robot namespace used when multiple stacks share a domain.',
+    )
+
+    declare_namespace_tf = DeclareLaunchArgument(
+        'namespace_tf',
+        default_value='false',
+        description='Remap /tf and /tf_static beneath robot_namespace.',
     )
 
     # TF child frame identifying the robot body (e.g. pioneer, scout_mini).
@@ -289,6 +307,7 @@ def generate_launch_description():
         declare_use_sim_time,
         declare_params_file,
         declare_robot_namespace,
+        declare_namespace_tf,
         declare_tf_robot_pose,
         declare_tf_reference_frame,
         declare_speed_ref,
