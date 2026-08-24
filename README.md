@@ -66,7 +66,7 @@ flowchart TB
 | **Low-level control** | `polaris_control` | *What wheel commands?* — feedback linearization: global velocity vector → `Twist` |
 | **Perception** | `polaris_control` | *What is blocking the path?* — DBSCAN on `LaserScan`, publishes closest obstacle point |
 
-Planning and control communicate over a small, stable ROS interface (`/ref_path`, services, optional `/clear_planner`). Neither package depends on the other at build time; integration happens at launch time in `polaris_control`.
+Planning and control communicate over a small, stable ROS interface (`ref_path`, services, optional `clear_planner`). The names are relative: standalone launches resolve them at the root, while multi-robot launches resolve them below `/<robot_namespace>`. Neither package depends on the other at build time; integration happens at launch time in `polaris_control`.
 
 ---
 

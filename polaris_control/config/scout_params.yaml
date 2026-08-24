@@ -6,7 +6,7 @@ controller:
     convergence_gain: 8.0
 
     pose_topic_type: "TFMessage"
-    pose_topic_name: "/tf"
+    pose_topic_name: "tf"
     tf_reference_frame: "sim_world"
     tf_robot_pose: "scout_mini"
 
@@ -31,10 +31,10 @@ feedback_linearization:
     const_vel: 1.0
     const_omega: 2.0
     control_period: 0.05
-    cmd_vel_topic: "/cmd_vel"
-    vec_to_follow_topic: "/vec_to_follow"
+    cmd_vel_topic: "cmd_vel"
+    vec_to_follow_topic: "vec_to_follow"
     pose_topic_type: "PoseWithCovarianceStamped"
-    pose_topic: "/amcl_pose"
+    pose_topic: "amcl_pose"
     tf_robot_pose: "body"
     tf_inertial_link: "map"
 
@@ -44,16 +44,16 @@ follower_control:
     const_vel: 1.0
     const_omega: 2.0
     control_period: 0.05
-    cmd_vel_topic: "/cmd_vel"
-    vec_to_follow_topic: "/vec_to_follow"
+    cmd_vel_topic: "cmd_vel"
+    vec_to_follow_topic: "vec_to_follow"
     pose_topic_type: "TFMessage"
-    pose_topic: "/tf"
+    pose_topic: "tf"
     tf_robot_pose: "scout_mini"
     tf_inertial_link: "sim_world"
-    orient_point_topic: "/inspection_pose"
-    stop_robot_topic: "/stop_robot"
-    stop_control_topic: "/stop_control"
-    clear_planner_service: "/clear_planner"
+    orient_point_topic: "inspection_pose"
+    stop_robot_topic: "stop_robot"
+    stop_control_topic: "stop_control"
+    clear_planner_service: "clear_planner"
     kp_pos: 1.0
     kp_orient: 1.0
 
@@ -64,13 +64,13 @@ planner:
     flag_interpolation_method: 1
     max_point_distance: 0.2
     path_topic_name: "ref_path"
-    visualization_topic_name: "/visual_path"
-    clicked_point_topic_name: "/goal_pose"
+    visualization_topic_name: "visual_path"
+    clicked_point_topic_name: "goal_pose"
     pose_topic_type: "TFMessage"
-    pose_topic_name: "/tf"
+    pose_topic_name: "tf"
     tf_reference_frame: "sim_world"
     tf_robot_pose: "scout_mini"
-    start_service_name: "/start_planner"
-    clear_service_name: "/clear_planner"
+    start_service_name: "start_planner"
+    clear_service_name: "clear_planner"
     is_path_closed_service_name: "is_path_closed"
-    remove_last_point_service_name: "/remove_last_point"
+    remove_last_point_service_name: "remove_last_point"

@@ -101,7 +101,7 @@ private:
         speed_ref_ = declare_parameter<double>("speed_ref", 0.2);
         convergence_gain_ = declare_parameter<double>("convergence_gain", 5.0);
         
-        pose_topic_name_ = declare_parameter<std::string>("pose_topic_name", "/amcl_pose");
+        pose_topic_name_ = declare_parameter<std::string>("pose_topic_name", "amcl_pose");
         pose_topic_type_ = declare_parameter<std::string>("pose_topic_type", "Odometry");
         path_topic_name_ = declare_parameter<std::string>("path_topic_name", "ref_path");
         cmd_vel_topic_name_ = declare_parameter<std::string>("cmd_vel_topic_name", "vec_to_follow");
@@ -153,8 +153,8 @@ private:
 
     void setupROS() {
         cmd_vel_pub_ = create_publisher<geometry_msgs::msg::Vector3>(cmd_vel_topic_name_, 10);
-        rviz_command_pub_ = create_publisher<visualization_msgs::msg::Marker>("/visualization_command", 10);
-        rviz_path_pub_ = create_publisher<visualization_msgs::msg::MarkerArray>("/visualization_path", 10);
+        rviz_command_pub_ = create_publisher<visualization_msgs::msg::Marker>("visualization_command", 10);
+        rviz_path_pub_ = create_publisher<visualization_msgs::msg::MarkerArray>("visualization_path", 10);
 
         if (pose_topic_type_ == "TFMessage") {
             pose_sub_ = create_subscription<tf2_msgs::msg::TFMessage>(pose_topic_name_, 10, std::bind(&VectorFieldController::callbackTF, this, std::placeholders::_1));
