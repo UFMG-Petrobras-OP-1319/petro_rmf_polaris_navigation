@@ -491,7 +491,7 @@ private:
 
     void visualizeCommand(double Vx, double Vy) {
         visualization_msgs::msg::Marker marker;
-        marker.header.frame_id = "map";
+        marker.header.frame_id = tf_reference_frame_;
         marker.header.stamp = now();
         marker.ns = "control_vector";
         marker.id = 0;
