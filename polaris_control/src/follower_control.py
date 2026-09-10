@@ -131,7 +131,7 @@ class VectorFollowerNode(Node):
         )
         self.create_subscription(
             PoseStamped, self.orient_point_topic, self._orient_target_cb, one_shot_qos)
-        self.create_subscription(Bool, self.stop_robot_topic, self._stop_robot_cb, 10)
+        self.create_subscription(String, self.stop_robot_topic, self._stop_robot_cb, 10)
         self.create_subscription(
             String, self.stop_control_topic, self._stop_control_cb, one_shot_qos)
 
