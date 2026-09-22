@@ -120,6 +120,7 @@ install(PROGRAMS
 
 install(PROGRAMS
   src/follower_control.py
+  src/FollowerControlState.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
