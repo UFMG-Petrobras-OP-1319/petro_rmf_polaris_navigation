@@ -44,7 +44,7 @@ public:
         this->declare_parameter<std::string>("visualization_topic_name", "visual_path");
         this->declare_parameter<std::string>("clicked_point_topic_name", "goal_pose");
         this->declare_parameter<std::string>("pose_topic_type", "TFMessage"); // TFMessage | Odometry | PoseWithCovarience
-        this->declare_parameter<std::string>("pose_topic_name", "/tf");
+        this->declare_parameter<std::string>("pose_topic_name", "tf");
         this->declare_parameter<std::string>("tf_reference_frame", "odom");
         this->declare_parameter<std::string>("tf_robot_pose", "body");
         this->declare_parameter<std::string>("start_service_name", "start_planner");
