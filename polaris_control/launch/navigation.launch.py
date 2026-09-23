@@ -1,9 +1,12 @@
+"""Launch the Polaris planner and vector-field controller."""
+
 import logging
 import os
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch.substitutions import LaunchConfiguration
+
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 import yaml
@@ -17,17 +20,24 @@ def _robot_name(namespace, name):
     return f'/{namespace.strip("/")}/{name}'
 
 
+def _as_bool(value):
+    return value.strip().lower() in ('1', 'true', 'yes', 'on')
+
+
 def _launch_setup(context, *_args, **_kwargs):
     package_name = 'polaris_control'
 
-    use_sim_time = LaunchConfiguration('use_sim_time')
     params_file = LaunchConfiguration('params_file').perform(context)
-    robot_namespace = LaunchConfiguration('robot_namespace').perform(context)
-    namespace_tf = (
-        LaunchConfiguration('namespace_tf').perform(context).lower() == 'true'
+    robot_namespace = LaunchConfiguration('robot_namespace').perform(
+        context
+    ).strip('/')
+    namespace_tf = _as_bool(
+        LaunchConfiguration('namespace_tf').perform(context)
+    )
+    use_sim_time = _as_bool(
+        LaunchConfiguration('use_sim_time').perform(context)
     )
     tf_robot_pose = LaunchConfiguration('tf_robot_pose').perform(context)
-    tf_reference_frame = LaunchConfiguration('tf_reference_frame').perform(context)
     speed_ref = LaunchConfiguration('speed_ref').perform(context)
     convergence_gain = LaunchConfiguration('convergence_gain').perform(context)
     add_measurement_noise = (
@@ -39,12 +49,21 @@ def _launch_setup(context, *_args, **_kwargs):
     noise_stddev_position = float(LaunchConfiguration('noise_stddev_position').perform(context))
     noise_mean_yaw = float(LaunchConfiguration('noise_mean_yaw').perform(context))
     noise_stddev_yaw = float(LaunchConfiguration('noise_stddev_yaw').perform(context))
+    tf_reference_frame = LaunchConfiguration('tf_reference_frame').perform(
+        context
+    )
+
+    if namespace_tf and not robot_namespace:
+        raise RuntimeError(
+            'namespace_tf=true requires a non-empty robot_namespace'
+        )
 
     pkg_share = FindPackageShare(package_name).perform(context)
     param_config_file = os.path.join(pkg_share, 'config', params_file)
 
     with open(param_config_file, encoding='utf-8') as parameter_file:
-        parameter_config = yaml.safe_load(parameter_file)
+            parameter_config = yaml.safe_load(parameter_file)
+
     controller_parameters = parameter_config['controller']['ros__parameters']
     planner_parameters = parameter_config['planner']['ros__parameters']
 
@@ -65,7 +84,8 @@ def _launch_setup(context, *_args, **_kwargs):
     else:
         _logger.warning(
             '⚠️  tf_robot_pose not set via launch arg — '
-            'falling back to value in %s. Pass tf_robot_pose:=<frame> to override.',
+            'falling back to value in %s. Pass tf_robot_pose:=<frame> '
+            'to override.',
             params_file,
         )
 
@@ -75,7 +95,8 @@ def _launch_setup(context, *_args, **_kwargs):
     else:
         _logger.warning(
             '⚠️  tf_reference_frame not set via launch arg — '
-            'falling back to value in %s. Pass tf_reference_frame:=<frame> to override.',
+            'falling back to value in %s. Pass '
+            'tf_reference_frame:=<frame> to override.',
             params_file,
         )
 
@@ -174,6 +195,7 @@ def _launch_setup(context, *_args, **_kwargs):
         name='static_map_to_odom_publisher',
         namespace=robot_namespace,
         arguments=['0', '0', '0', '0', '0', '0', map_frame, odom_frame],
+        parameters=[{'use_sim_time': use_sim_time}],
         remappings=tf_remappings,
     )
 
@@ -186,6 +208,7 @@ def _launch_setup(context, *_args, **_kwargs):
         arguments=[
             '0', '0', '0.32', '0', '0', '0', body_frame, livox_frame
         ],
+        parameters=[{'use_sim_time': use_sim_time}],
         remappings=tf_remappings,
     )
 
@@ -198,29 +221,37 @@ def _launch_setup(context, *_args, **_kwargs):
 
 
 def generate_launch_description():
-
-    declare_use_sim_time = DeclareLaunchArgument(
-        'use_sim_time',
-        default_value='true',
-        description='Use the simulation clock.',
-    )
+    """Return the configurable Polaris navigation launch description."""
 
     declare_params_file = DeclareLaunchArgument(
         'params_file',
         default_value='pioneer_params.yaml',
-        description='Controller params YAML filename under polaris_control/config/',
+        description=(
+            'Controller params YAML filename under polaris_control/config/'
+        ),
     )
 
     declare_robot_namespace = DeclareLaunchArgument(
         'robot_namespace',
         default_value='',
-        description='Robot namespace used when multiple stacks share a domain.',
+        description=(
+            'Namespace applied to every Polaris node and relative ROS name.'
+        ),
     )
 
     declare_namespace_tf = DeclareLaunchArgument(
         'namespace_tf',
         default_value='false',
-        description='Remap /tf and /tf_static beneath robot_namespace.',
+        description=(
+            'Remap /tf and /tf_static into robot_namespace. Requires a '
+            'non-empty robot_namespace.'
+        ),
+    )
+
+    declare_use_sim_time = DeclareLaunchArgument(
+        'use_sim_time',
+        default_value='false',
+        description='Use the simulation clock for all launched nodes.',
     )
 
     # TF child frame identifying the robot body (e.g. pioneer, scout_mini).
