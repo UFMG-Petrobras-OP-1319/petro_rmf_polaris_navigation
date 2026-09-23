@@ -119,6 +119,16 @@ def generate_launch_description():
         arguments=['0', '0', '0.32', '0', '0', '0', 'body', 'livox_frame']
     )
 
+    static_tf_livox_frame_to_camera_frame = Node(
+        package='tf2_ros',
+        executable='static_transform_publisher',
+        name='static_livox_frame_to_camera_frame_publisher',
+        # Note que 'args' no XML é uma string única,
+        # mas 'arguments' no Python é uma lista de strings
+        # Camera is 32 cm above the Livox frame.
+        arguments=['0', '0', '0.32', '0', '0', '0', 'livox_frame', 'camera_link']
+    )
+
     # --- Outros TFs Estáticos (Comentados) ---
     # <node pkg="tf2_ros" ... args="0 0 0 0 0 0 world map" />
     # static_tf_world_to_map = Node(
@@ -155,7 +165,7 @@ def generate_launch_description():
         closest_obstacle_detector_node,
         static_tf_map_to_odom,
         static_tf_body_to_livox_frame,
-        
+        static_tf_livox_frame_to_camera_frame,
         # Descomente as linhas abaixo se quiser adicionar os nós comentados
         # robot_sim_node,
         # static_tf_world_to_map,

@@ -3,7 +3,7 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch_ros.actions import Node
 
-params_file = "pioneer_params.yaml"
+params_file = "scout_params.yaml"
 
 
 def generate_launch_description():
