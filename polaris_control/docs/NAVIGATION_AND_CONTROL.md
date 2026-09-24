@@ -15,8 +15,8 @@ The stack is split into two layers:
 
 | Launch file | Role | Obstacle avoidance | Orientation FSM |
 |---|---|---|---|
-| [`navigation.launch.py`](../launch/navigation.launch.py) | Full nav stack (planner + controller + RViz + TF) | **No** (detector not started) | N/A |
-| [`safe_nav_stack.launch.py`](../launch/safe_nav_stack.launch.py) | Full nav stack + perception | **Yes** (`closest_obstacle_detector`) | N/A |
+| [`navigation.launch.py`](../launch/navigation.launch.py) | Full nav stack (planner + controller + optional detector + TF) | **Optional** (`use_obstacle_avoidance`) | N/A |
+| [`safe_nav_stack.launch.py`](../launch/safe_nav_stack.launch.py) | Legacy full nav stack + perception | **Yes** (`closest_obstacle_detector`) | N/A |
 | [`feedback_linearization.launch.py`](../launch/feedback_linearization.launch.py) | Low-level follower only | N/A | **No** |
 | [`follower_control.launch.py`](../launch/follower_control.launch.py) | Low-level follower only | N/A | **Yes** |
 
@@ -65,8 +65,14 @@ ros2 launch polaris_control navigation.launch.py
 
 **With obstacle avoidance:**
 
+The canonical launch is `navigation.launch.py`; enable the detector explicitly and override the sensor/world frame without editing YAML:
+
 ```bash
-ros2 launch polaris_control safe_nav_stack.launch.py
+ros2 launch polaris_control navigation.launch.py \
+  use_obstacle_avoidance:=true \
+  detector_input_topic:=/scan \
+  detector_world_frame:=map \
+  flag_follow_obstacle:=true
 ```
 
 ### 4. Start low-level control (second terminal)
@@ -118,6 +124,23 @@ ros2 topic pub --once --qos-reliability reliable --qos-durability transient_loca
   /inspection_pose geometry_msgs/msg/PoseStamped \
   "{header: {frame_id: 'map'}, pose: {position: {x: 1.0, y: 2.0, z: 0.0}}}"
 ```
+
+---
+
+## P77 simulation
+
+P77 uses the same pipeline as inspection missions: the RMF `monitor_places` task provides goals, `path_from_points` publishes `ref_path`, `vector_field_controller` blends the closest-obstacle field, and `follower_control` converts `/vec_to_follow` into `/cmd_vel`. No RMF task code changes are required.
+
+Enable the detector from the deployment profile with these values:
+
+| Robot | ROS domain | LaserScan | Robot TF | Reference/detector world frame |
+|---|---:|---|---|---|
+| Pioneer | 3 | `/pioneer/scan` | `sim_world` → `pioneer1` | `sim_world` |
+| Scout | 23 | `/ScoutMini/scan` | `sim_world` → `scoutMini1` | `sim_world` |
+
+P77 must set `publish_static_tfs:=false`; Gazebo supplies the robot pose and sensor transforms. Validate the actual `LaserScan.header.frame_id` and its TF path to `sim_world` before tuning detector parameters. The detector publishes the nearest cluster on `closest_obstacle`; the topic has no frame field, so its configured `world_frame` must match the controller reference frame.
+
+Reactive avoidance is local: the robot may leave the negotiated lane temporarily and should return toward the assigned path after passing a contournable obstacle. This integration does not replan RMF traffic. Permanently blocked routes and stale-obstacle clearing remain limitations tracked separately.
 
 ---
 

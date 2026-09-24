@@ -3,6 +3,7 @@ import os
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
+from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
@@ -23,6 +24,9 @@ def _launch_setup(context, *_args, **_kwargs):
     noise_stddev_position = float(LaunchConfiguration('noise_stddev_position').perform(context))
     noise_mean_yaw = float(LaunchConfiguration('noise_mean_yaw').perform(context))
     noise_stddev_yaw = float(LaunchConfiguration('noise_stddev_yaw').perform(context))
+    detector_input_topic = LaunchConfiguration('detector_input_topic').perform(context)
+    detector_world_frame = LaunchConfiguration('detector_world_frame').perform(context)
+    flag_follow_obstacle = LaunchConfiguration('flag_follow_obstacle').perform(context)
 
     pkg_share = FindPackageShare(package_name).perform(context)
     param_config_file = os.path.join(pkg_share, 'config', params_file)
@@ -36,6 +40,9 @@ def _launch_setup(context, *_args, **_kwargs):
         'noise_mean_yaw': noise_mean_yaw,
         'noise_stddev_yaw': noise_stddev_yaw,
     }
+
+    if flag_follow_obstacle:
+        overrides['flag_follow_obstacle'] = flag_follow_obstacle.lower() == 'true'
 
     if tf_robot_pose:
         overrides['tf_robot_pose'] = tf_robot_pose
@@ -93,10 +100,31 @@ def _launch_setup(context, *_args, **_kwargs):
         parameters=parameters,
     )
 
+    detector_parameters = [
+        os.path.join(pkg_share, 'config', 'closest_obstacle_detector_params.yaml'),
+    ]
+    detector_overrides = {}
+    if detector_input_topic:
+        detector_overrides['input_topic'] = detector_input_topic
+    if detector_world_frame:
+        detector_overrides['world_frame'] = detector_world_frame
+    if detector_overrides:
+        detector_parameters.append(detector_overrides)
+
+    detector_node = Node(
+        package=package_name,
+        executable='closest_obstacle_detector',
+        name='closest_obstacle_detector',
+        output='screen',
+        condition=IfCondition(LaunchConfiguration('use_obstacle_avoidance')),
+        parameters=detector_parameters,
+    )
+
     static_tf_map_to_odom = Node(
         package='tf2_ros',
         executable='static_transform_publisher',
         name='static_map_to_odom_publisher',
+        condition=IfCondition(LaunchConfiguration('publish_static_tfs')),
         arguments=['0', '0', '0', '0', '0', '0', 'map', 'odom'],
     )
 
@@ -104,6 +132,7 @@ def _launch_setup(context, *_args, **_kwargs):
         package='tf2_ros',
         executable='static_transform_publisher',
         name='static_body_to_livox_frame_publisher',
+        condition=IfCondition(LaunchConfiguration('publish_static_tfs')),
         # livox is 32 cm above the body frame
         arguments=['0', '0', '0.32', '0', '0', '0', 'body', 'livox_frame'],
     )
@@ -111,6 +140,7 @@ def _launch_setup(context, *_args, **_kwargs):
     return [
         controller_node,
         planner_node,
+        detector_node,
         static_tf_map_to_odom,
         static_tf_body_to_livox_frame,
     ]
@@ -198,6 +228,36 @@ def generate_launch_description():
         description='Standard deviation of the Gaussian noise added to the yaw measurement (rad).',
     )
 
+    declare_use_obstacle_avoidance = DeclareLaunchArgument(
+        'use_obstacle_avoidance',
+        default_value='false',
+        description='Start the closest-obstacle detector and enable the avoidance pipeline.',
+    )
+
+    declare_detector_input_topic = DeclareLaunchArgument(
+        'detector_input_topic',
+        default_value='',
+        description='LaserScan topic for obstacle detection; empty uses the detector YAML value.',
+    )
+
+    declare_detector_world_frame = DeclareLaunchArgument(
+        'detector_world_frame',
+        default_value='',
+        description='World frame for transformed obstacle points; empty uses the detector YAML value.',
+    )
+
+    declare_flag_follow_obstacle = DeclareLaunchArgument(
+        'flag_follow_obstacle',
+        default_value='',
+        description='Override the controller obstacle-follow flag; empty uses the robot YAML value.',
+    )
+
+    declare_publish_static_tfs = DeclareLaunchArgument(
+        'publish_static_tfs',
+        default_value='true',
+        description='Publish legacy map->odom and body->livox_frame static transforms.',
+    )
+
     return LaunchDescription([
         declare_params_file,
         declare_tf_robot_pose,
@@ -209,5 +269,10 @@ def generate_launch_description():
         declare_noise_stddev_position,
         declare_noise_mean_yaw,
         declare_noise_stddev_yaw,
+        declare_use_obstacle_avoidance,
+        declare_detector_input_topic,
+        declare_detector_world_frame,
+        declare_flag_follow_obstacle,
+        declare_publish_static_tfs,
         OpaqueFunction(function=_launch_setup),
     ])
