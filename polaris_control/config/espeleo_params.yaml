@@ -1,0 +1,85 @@
+# Params file to vector_field_control
+# Espeleo values from CORO espeleo_polaris_sim_params.yaml.
+# controller.goal_tolerance must stay equal to task_position_error_threshold
+# in petro-rmf-map-ee/maps/ee-1-6-0/config/espeleo_config.yaml (0.20).
+
+controller:
+  ros__parameters:
+    speed_ref: 0.15
+    convergence_gain: 4.0
+
+    pose_topic_type: "TFMessage"
+    pose_topic_name: "/tf"
+    tf_reference_frame: "sim_world"
+    tf_robot_pose: "espeleo"
+
+    path_topic_name: "ref_path"
+    cmd_vel_topic_name: "vec_to_follow"
+    closest_obstacle_topic_name: "closest_obstacle"
+    is_path_closed_service_name: "is_path_closed"
+
+    flag_follow_obstacle: true
+    lambda: 0.6
+    switch_dist: 0.6
+    switch_dist_outer: 0.9
+    goal_tolerance: 0.20
+    goal_hysteresis: 0.27
+    slowdown_radius: 0.6
+    min_tracking_speed: 0.08
+
+    add_measurement_noise: false
+    noise_mean_position: 0.0
+    noise_stddev_position: 0.0
+    noise_mean_yaw: 0.0
+    noise_stddev_yaw: 0.0
+
+
+feedback_linearization:
+  ros__parameters:
+    distancia_ponto_controle: 0.15
+    const_vel: 1.0
+    const_omega: 2.0
+    control_period: 0.05
+    cmd_vel_topic: "/cmd_vel"
+    vec_to_follow_topic: "/vec_to_follow"
+    pose_topic_type: "PoseWithCovarianceStamped"
+    pose_topic: "/amcl_pose"
+    tf_robot_pose: "body"
+    tf_inertial_link: "map"
+
+follower_control:
+  ros__parameters:
+    distancia_ponto_controle: 0.15
+    const_vel: 0.15
+    const_omega: 2.0
+    control_period: 0.05
+    cmd_vel_topic: "/cmd_vel"
+    vec_to_follow_topic: "/vec_to_follow"
+    pose_topic_type: "TFMessage"
+    pose_topic: "/tf"
+    tf_robot_pose: "espeleo"
+    tf_inertial_link: "sim_world"
+    orient_point_topic: "/inspection_pose"
+    stop_robot_topic: "/stop_robot"
+    stop_control_topic: "/stop_control"
+    clear_planner_service: "/clear_planner"
+    kp_pos: 1.0
+    kp_orient: 1.0
+
+
+planner:
+  ros__parameters:
+    N_points: 8
+    flag_interpolation_method: 1
+    max_point_distance: 0.2
+    path_topic_name: "ref_path"
+    visualization_topic_name: "/visual_path"
+    clicked_point_topic_name: "/goal_pose"
+    pose_topic_type: "TFMessage"
+    pose_topic_name: "/tf"
+    tf_reference_frame: "sim_world"
+    tf_robot_pose: "espeleo"
+    start_service_name: "/start_planner"
+    clear_service_name: "/clear_planner"
+    is_path_closed_service_name: "is_path_closed"
+    remove_last_point_service_name: "/remove_last_point"
