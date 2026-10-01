@@ -15,7 +15,6 @@ from nav2_common.launch import RewrittenYaml
 
 _logger = logging.getLogger('follower_control.launch')
 
-
 def _robot_name(namespace, name):
     if not namespace:
         return f'/{name}'
@@ -45,6 +44,17 @@ def _launch_setup(context, *args, **kwargs):
     kp_orient = float(LaunchConfiguration('kp_orient').perform(context))
     tf_robot_pose = LaunchConfiguration('tf_robot_pose').perform(context)
     tf_inertial_link = LaunchConfiguration('tf_inertial_link').perform(context)
+    prefix_tf_frames = _as_bool(
+            LaunchConfiguration('prefix_tf_frames').perform(context)
+            )
+
+    if tf_robot_pose == '{robot_name}':
+        tf_robot_pose = robot_namespace
+    else:
+        tf_robot_pose = robot_namespace + '/' + tf_robot_pose if prefix_tf_frames and tf_robot_pose != robot_namespace else tf_robot_pose
+
+    if prefix_tf_frames and tf_inertial_link != 'sim_world':
+        tf_inertial_link = robot_namespace + '/' + tf_inertial_link
 
     if namespace_tf and not robot_namespace:
         raise RuntimeError(
@@ -52,6 +62,11 @@ def _launch_setup(context, *args, **kwargs):
         )
 
     pkg_share = FindPackageShare(package_name).perform(context)
+    if len(params_file) == 0:
+        raise RuntimeError(
+            'params_file launch arg must be set to a YAML file in '
+            f'{pkg_share}/config'
+        )
     param_config_file = os.path.join(pkg_share, 'config', params_file)
 
     with open(param_config_file, encoding='utf-8') as parameter_file:
@@ -141,7 +156,7 @@ def generate_launch_description():
 
     declare_params_file = DeclareLaunchArgument(
         'params_file',
-        default_value='pioneer_params.yaml',
+        default_value='',
         description=(
             'Controller params YAML filename under polaris_control/config/'
         ),
@@ -187,7 +202,7 @@ def generate_launch_description():
     # Empty string means: use whatever is in the params YAML.
     declare_tf_robot_pose = DeclareLaunchArgument(
         'tf_robot_pose',
-        default_value='',
+        default_value='base_link',
         description=(
             'TF child frame for the robot body (e.g. pioneer, scout_mini). '
             'If empty, the value from params_file YAML is used.'
@@ -198,14 +213,19 @@ def generate_launch_description():
     # Empty string means: use whatever is in the params YAML.
     declare_tf_inertial_link = DeclareLaunchArgument(
         'tf_inertial_link',
-        default_value='',
+        default_value='sim_world',
         description=(
             'TF parent (world/inertial) frame (e.g. sim_world). '
             'If empty, the value from params_file YAML is used.'
         ),
     )
+    declare_prefix_tf_frames = DeclareLaunchArgument(
+        'prefix_tf_frames',
+        default_value='true',
+    )
 
     return LaunchDescription([
+        declare_prefix_tf_frames,
         declare_use_sim_time,
         declare_params_file,
         declare_robot_namespace,
