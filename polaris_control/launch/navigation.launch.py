@@ -45,6 +45,9 @@ def _launch_setup(context, *_args, **_kwargs):
         .perform(context)
         .lower() == 'true'
     )
+    prefix_tf_frames = _as_bool(
+            LaunchConfiguration('prefix_tf_frames').perform(context)
+            )
     noise_mean_position = float(LaunchConfiguration('noise_mean_position').perform(context))
     noise_stddev_position = float(LaunchConfiguration('noise_stddev_position').perform(context))
     noise_mean_yaw = float(LaunchConfiguration('noise_mean_yaw').perform(context))
@@ -52,6 +55,14 @@ def _launch_setup(context, *_args, **_kwargs):
     tf_reference_frame = LaunchConfiguration('tf_reference_frame').perform(
         context
     )
+
+    if tf_robot_pose == '{robot_name}':
+        tf_robot_pose = robot_namespace
+    else:
+        tf_robot_pose = robot_namespace + '/' + tf_robot_pose if prefix_tf_frames and tf_robot_pose != robot_namespace else tf_robot_pose
+
+    if tf_reference_frame != "sim_world" and prefix_tf_frames:
+        tf_reference_frame = robot_namespace + '/' + tf_reference_frame
 
     if namespace_tf and not robot_namespace:
         raise RuntimeError(
@@ -184,10 +195,16 @@ def _launch_setup(context, *_args, **_kwargs):
         remappings=tf_remappings,
     )
 
-    map_frame = _robot_name(robot_namespace, 'map').lstrip('/')
-    odom_frame = _robot_name(robot_namespace, 'odom').lstrip('/')
-    body_frame = _robot_name(robot_namespace, 'body').lstrip('/')
-    livox_frame = _robot_name(robot_namespace, 'livox_frame').lstrip('/')
+    if prefix_tf_frames:
+        map_frame = _robot_name(robot_namespace, 'map').lstrip('/')
+        odom_frame = _robot_name(robot_namespace, 'odom').lstrip('/')
+        body_frame = _robot_name(robot_namespace, 'body').lstrip('/')
+        livox_frame = _robot_name(robot_namespace, 'livox_frame').lstrip('/')
+    else:
+        map_frame = 'map'
+        odom_frame = 'odom'
+        body_frame = 'body'
+        livox_frame = 'livox_frame'
 
     static_tf_map_to_odom = Node(
         package='tf2_ros',
@@ -333,8 +350,14 @@ def generate_launch_description():
         default_value='0.0',
         description='Standard deviation of the Gaussian noise added to the yaw measurement (rad).',
     )
+    declare_prefix_tf_frames = DeclareLaunchArgument(
+        'declare_prefix_tf_frames',
+        default_value='true',
+        description='Standard deviation of the Gaussian noise added to the yaw measurement (rad).',
+    )
 
     return LaunchDescription([
+        declare_prefix_tf_frames,
         declare_use_sim_time,
         declare_params_file,
         declare_robot_namespace,
