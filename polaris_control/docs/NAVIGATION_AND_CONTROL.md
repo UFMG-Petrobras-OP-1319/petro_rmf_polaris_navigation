@@ -26,6 +26,32 @@ Other launches (legacy / demo):
 |---|---|
 | [`demo.launch.py`](../launch/demo.launch.py) | Older demo stack; uses `path_from_equation` and Scout-specific static TFs |
 
+## Namespaced robot stacks
+
+`navigation.launch.py` and `follower_control.launch.py` accept the same
+multi-robot arguments:
+
+- `robot_namespace` places every launched node and relative ROS interface under
+  the robot name.
+- `namespace_tf:=true` remaps `/tf` and `/tf_static` to the robot's namespaced
+  TF topics. It requires a non-empty `robot_namespace`.
+- `use_sim_time` selects the simulation clock for all nodes in the launch.
+
+Launch both halves of a simulated Pioneer stack as follows:
+
+```bash
+ros2 launch polaris_control navigation.launch.py \
+  robot_namespace:=pioneer_1 namespace_tf:=true use_sim_time:=true
+ros2 launch polaris_control follower_control.launch.py \
+  robot_namespace:=pioneer_1 namespace_tf:=true use_sim_time:=true
+```
+
+The resulting nodes are `/pioneer_1/controller`, `/pioneer_1/planner`, and
+`/pioneer_1/follower_control`. Robot-local topics and services are relative in
+the parameter YAML, so names such as `tf`, `goal_pose`, `ref_path`,
+`vec_to_follow`, and `cmd_vel` resolve below `/pioneer_1`. Omitting the
+namespace arguments preserves the standalone root-namespace behavior.
+
 ---
 
 ## How to run (dummy workflow)
