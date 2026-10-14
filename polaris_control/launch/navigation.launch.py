@@ -351,7 +351,7 @@ def generate_launch_description():
         description='Standard deviation of the Gaussian noise added to the yaw measurement (rad).',
     )
     declare_prefix_tf_frames = DeclareLaunchArgument(
-        'declare_prefix_tf_frames',
+        'prefix_tf_frames',
         default_value='true',
         description='Standard deviation of the Gaussian noise added to the yaw measurement (rad).',
     )
