@@ -35,7 +35,16 @@ multi-robot arguments:
   the robot name.
 - `namespace_tf:=true` remaps `/tf` and `/tf_static` to the robot's namespaced
   TF topics. It requires a non-empty `robot_namespace`.
+- `prefix_tf_frames:=true` prefixes local frame arguments such as `map` and
+  `body` with `robot_namespace`. Frames already below that namespace are left
+  unchanged, so a prefix is never applied twice. The global `sim_world` frame
+  is also left unchanged.
 - `use_sim_time` selects the simulation clock for all nodes in the launch.
+
+Prefer local frame values such as `tf_reference_frame:=map` and
+`tf_robot_pose:=body` when prefixing is enabled. Fully qualified values such as
+`scout_1/map` remain accepted for compatibility. TF frame IDs must not begin
+with `/`.
 
 Launch both halves of a simulated Pioneer stack as follows:
 

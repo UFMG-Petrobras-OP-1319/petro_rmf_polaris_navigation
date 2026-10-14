@@ -24,6 +24,19 @@ def _as_bool(value):
     return value.strip().lower() in ('1', 'true', 'yes', 'on')
 
 
+def _resolve_tf_frame(robot_namespace, frame, prefix_tf_frames):
+    """Apply ``robot_namespace`` to a TF frame at most once."""
+    if not frame:
+        return frame
+    if frame == '{robot_name}':
+        return robot_namespace
+    if not prefix_tf_frames or not robot_namespace or frame == 'sim_world':
+        return frame
+    if frame == robot_namespace or frame.startswith(f'{robot_namespace}/'):
+        return frame
+    return f'{robot_namespace}/{frame}'
+
+
 def _launch_setup(context, *_args, **_kwargs):
     package_name = 'polaris_control'
 
@@ -56,13 +69,12 @@ def _launch_setup(context, *_args, **_kwargs):
         context
     )
 
-    if tf_robot_pose == '{robot_name}':
-        tf_robot_pose = robot_namespace
-    else:
-        tf_robot_pose = robot_namespace + '/' + tf_robot_pose if prefix_tf_frames and tf_robot_pose != robot_namespace else tf_robot_pose
-
-    if tf_reference_frame != "sim_world" and prefix_tf_frames:
-        tf_reference_frame = robot_namespace + '/' + tf_reference_frame
+    tf_robot_pose = _resolve_tf_frame(
+        robot_namespace, tf_robot_pose, prefix_tf_frames
+    )
+    tf_reference_frame = _resolve_tf_frame(
+        robot_namespace, tf_reference_frame, prefix_tf_frames
+    )
 
     if namespace_tf and not robot_namespace:
         raise RuntimeError(
@@ -195,16 +207,18 @@ def _launch_setup(context, *_args, **_kwargs):
         remappings=tf_remappings,
     )
 
-    if prefix_tf_frames:
-        map_frame = _robot_name(robot_namespace, 'map').lstrip('/')
-        odom_frame = _robot_name(robot_namespace, 'odom').lstrip('/')
-        body_frame = _robot_name(robot_namespace, 'body').lstrip('/')
-        livox_frame = _robot_name(robot_namespace, 'livox_frame').lstrip('/')
-    else:
-        map_frame = 'map'
-        odom_frame = 'odom'
-        body_frame = 'body'
-        livox_frame = 'livox_frame'
+    map_frame = _resolve_tf_frame(
+        robot_namespace, 'map', prefix_tf_frames
+    )
+    odom_frame = _resolve_tf_frame(
+        robot_namespace, 'odom', prefix_tf_frames
+    )
+    body_frame = _resolve_tf_frame(
+        robot_namespace, 'body', prefix_tf_frames
+    )
+    livox_frame = _resolve_tf_frame(
+        robot_namespace, 'livox_frame', prefix_tf_frames
+    )
 
     static_tf_map_to_odom = Node(
         package='tf2_ros',
@@ -353,7 +367,10 @@ def generate_launch_description():
     declare_prefix_tf_frames = DeclareLaunchArgument(
         'prefix_tf_frames',
         default_value='true',
-        description='Standard deviation of the Gaussian noise added to the yaw measurement (rad).',
+        description=(
+            'Prefix local TF frame arguments with robot_namespace exactly '
+            'once.'
+        ),
     )
 
     return LaunchDescription([

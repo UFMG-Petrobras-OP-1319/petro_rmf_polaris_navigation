@@ -25,6 +25,19 @@ def _as_bool(value):
     return value.strip().lower() in ('1', 'true', 'yes', 'on')
 
 
+def _resolve_tf_frame(robot_namespace, frame, prefix_tf_frames):
+    """Apply ``robot_namespace`` to a TF frame at most once."""
+    if not frame:
+        return frame
+    if frame == '{robot_name}':
+        return robot_namespace
+    if not prefix_tf_frames or not robot_namespace or frame == 'sim_world':
+        return frame
+    if frame == robot_namespace or frame.startswith(f'{robot_namespace}/'):
+        return frame
+    return f'{robot_namespace}/{frame}'
+
+
 def _launch_setup(context, *args, **kwargs):
     """Evaluate launch args in context so float gains are typed correctly."""
     package_name = 'polaris_control'
@@ -48,13 +61,12 @@ def _launch_setup(context, *args, **kwargs):
             LaunchConfiguration('prefix_tf_frames').perform(context)
             )
 
-    if tf_robot_pose == '{robot_name}':
-        tf_robot_pose = robot_namespace
-    else:
-        tf_robot_pose = robot_namespace + '/' + tf_robot_pose if prefix_tf_frames and tf_robot_pose != robot_namespace else tf_robot_pose
-
-    if prefix_tf_frames and tf_inertial_link != 'sim_world':
-        tf_inertial_link = robot_namespace + '/' + tf_inertial_link
+    tf_robot_pose = _resolve_tf_frame(
+        robot_namespace, tf_robot_pose, prefix_tf_frames
+    )
+    tf_inertial_link = _resolve_tf_frame(
+        robot_namespace, tf_inertial_link, prefix_tf_frames
+    )
 
     if namespace_tf and not robot_namespace:
         raise RuntimeError(
@@ -222,6 +234,10 @@ def generate_launch_description():
     declare_prefix_tf_frames = DeclareLaunchArgument(
         'prefix_tf_frames',
         default_value='true',
+        description=(
+            'Prefix local TF frame arguments with robot_namespace exactly '
+            'once.'
+        ),
     )
 
     return LaunchDescription([
