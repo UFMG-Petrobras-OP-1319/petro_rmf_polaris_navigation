@@ -301,6 +301,18 @@ private:
     // Calculates the path-following field (Φ)
     std::pair<double, double> computePathFollowingField() {
         int closest_index = findClosestPathPoint(robot_pos_[0], robot_pos_[1]);
+
+        // Open path, robot at or past its last point: the distance vector is no
+        // longer orthogonal to the tangent (the field's convergence assumes an
+        // infinite open curve), so the tangent keeps pushing the robot away and
+        // cancels the attraction at about 2.83 / convergence_gain past the goal.
+        // Steer straight to the goal instead; isGoalReached() stops it there.
+        if (!closed_path_flag_ && closest_index == static_cast<int>(path_size_) - 1) {
+            const double gx = path_[0].back() - robot_pos_[0];
+            const double gy = path_[1].back() - robot_pos_[1];
+            const double gd = std::sqrt(gx*gx + gy*gy) + 1e-6;
+            return {speed_ref_ * gx / gd, speed_ref_ * gy / gd};
+        }
         
         double dx = robot_pos_[0] - path_[0][closest_index];
         double dy = robot_pos_[1] - path_[1][closest_index];
