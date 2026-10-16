@@ -131,7 +131,7 @@ class VectorFollowerNode(Node):
         )
         self.create_subscription(
             PoseStamped, self.orient_point_topic, self._orient_target_cb, one_shot_qos)
-        self.create_subscription(String, self.stop_robot_topic, self._stop_robot_cb, 10)
+        self.create_subscription(Bool, self.stop_robot_topic, self._stop_robot_cb, 10)
         self.create_subscription(
             String, self.stop_control_topic, self._stop_control_cb, one_shot_qos)
 
@@ -296,7 +296,7 @@ class VectorFollowerNode(Node):
             self._stop_robot_flag = False
             self._do_stop_robot()
 
-        # STOPPED remains controlled by /stop_robot and vector availability. Keep
+        # STOPPED remains controlled by stop_robot and vector availability. Keep
         # the latest requested mode pending until the follower is active again.
         if (
             self._requested_control_state is not None

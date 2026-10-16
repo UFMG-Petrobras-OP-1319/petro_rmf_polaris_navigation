@@ -2,6 +2,7 @@
 
 import logging
 import os
+import re
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
@@ -14,43 +15,52 @@ import yaml
 _logger = logging.getLogger('navigation.launch')
 
 
-def _robot_name(namespace, name):
-    if not namespace:
-        return f'/{name}'
-    return f'/{namespace.strip("/")}/{name}'
+_ROS_NAME_TOKEN = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
+
+
+def _validate_robot_name(value):
+    if not value or not _ROS_NAME_TOKEN.fullmatch(value):
+        raise RuntimeError('robot_name must be one valid ROS name token')
+    return value
 
 
 def _as_bool(value):
     return value.strip().lower() in ('1', 'true', 'yes', 'on')
 
 
-def _resolve_tf_frame(robot_namespace, frame, prefix_tf_frames):
-    """Apply ``robot_namespace`` to a TF frame at most once."""
+def _tf_remappings(namespace_tf):
+    return [('/tf', 'tf'), ('/tf_static', 'tf_static')] if namespace_tf else []
+
+
+def _tf_topic(namespace_tf):
+    return 'tf' if namespace_tf else '/tf'
+
+
+def _resolve_tf_frame(robot_name, frame, prefix_tf_frames):
+    """Apply ``robot_name`` to a TF frame at most once."""
     if not frame:
         return frame
-    if frame == '{robot_name}':
-        return robot_namespace
-    if not prefix_tf_frames or not robot_namespace or frame == 'sim_world':
+    if not prefix_tf_frames:
         return frame
-    if frame == robot_namespace or frame.startswith(f'{robot_namespace}/'):
+    if frame == robot_name or frame.startswith(f'{robot_name}/'):
         return frame
-    return f'{robot_namespace}/{frame}'
+    return f'{robot_name}/{frame}'
 
 
 def _launch_setup(context, *_args, **_kwargs):
     package_name = 'polaris_control'
 
     params_file = LaunchConfiguration('params_file').perform(context)
-    robot_namespace = LaunchConfiguration('robot_namespace').perform(
-        context
-    ).strip('/')
+    robot_name = _validate_robot_name(
+        LaunchConfiguration('robot_name').perform(context)
+    )
     namespace_tf = _as_bool(
         LaunchConfiguration('namespace_tf').perform(context)
     )
     use_sim_time = _as_bool(
         LaunchConfiguration('use_sim_time').perform(context)
     )
-    tf_robot_pose = LaunchConfiguration('tf_robot_pose').perform(context)
+    tf_robot_pose_arg = LaunchConfiguration('tf_robot_pose').perform(context)
     speed_ref = LaunchConfiguration('speed_ref').perform(context)
     convergence_gain = LaunchConfiguration('convergence_gain').perform(context)
     add_measurement_noise = (
@@ -59,36 +69,55 @@ def _launch_setup(context, *_args, **_kwargs):
         .lower() == 'true'
     )
     prefix_tf_frames = _as_bool(
-            LaunchConfiguration('prefix_tf_frames').perform(context)
-            )
-    noise_mean_position = float(LaunchConfiguration('noise_mean_position').perform(context))
-    noise_stddev_position = float(LaunchConfiguration('noise_stddev_position').perform(context))
-    noise_mean_yaw = float(LaunchConfiguration('noise_mean_yaw').perform(context))
-    noise_stddev_yaw = float(LaunchConfiguration('noise_stddev_yaw').perform(context))
-    tf_reference_frame = LaunchConfiguration('tf_reference_frame').perform(
+        LaunchConfiguration('prefix_tf_frames').perform(context)
+    )
+    noise_mean_position = float(
+        LaunchConfiguration('noise_mean_position').perform(context)
+    )
+    noise_stddev_position = float(
+        LaunchConfiguration('noise_stddev_position').perform(context)
+    )
+    noise_mean_yaw = float(
+        LaunchConfiguration('noise_mean_yaw').perform(context)
+    )
+    noise_stddev_yaw = float(
+        LaunchConfiguration('noise_stddev_yaw').perform(context)
+    )
+    tf_reference_frame_arg = LaunchConfiguration('tf_reference_frame').perform(
         context
     )
-
-    tf_robot_pose = _resolve_tf_frame(
-        robot_namespace, tf_robot_pose, prefix_tf_frames
-    )
-    tf_reference_frame = _resolve_tf_frame(
-        robot_namespace, tf_reference_frame, prefix_tf_frames
-    )
-
-    if namespace_tf and not robot_namespace:
-        raise RuntimeError(
-            'namespace_tf=true requires a non-empty robot_namespace'
-        )
 
     pkg_share = FindPackageShare(package_name).perform(context)
     param_config_file = os.path.join(pkg_share, 'config', params_file)
 
     with open(param_config_file, encoding='utf-8') as parameter_file:
-            parameter_config = yaml.safe_load(parameter_file)
+        parameter_config = yaml.safe_load(parameter_file)
 
     controller_parameters = parameter_config['controller']['ros__parameters']
     planner_parameters = parameter_config['planner']['ros__parameters']
+
+    controller_robot_frame = _resolve_tf_frame(
+        robot_name,
+        tf_robot_pose_arg or controller_parameters.get('tf_robot_pose', ''),
+        prefix_tf_frames,
+    )
+    planner_robot_frame = _resolve_tf_frame(
+        robot_name,
+        tf_robot_pose_arg or planner_parameters.get('tf_robot_pose', ''),
+        prefix_tf_frames,
+    )
+    controller_reference_frame = _resolve_tf_frame(
+        robot_name,
+        tf_reference_frame_arg
+        or controller_parameters.get('tf_reference_frame', ''),
+        prefix_tf_frames,
+    )
+    planner_reference_frame = _resolve_tf_frame(
+        robot_name,
+        tf_reference_frame_arg
+        or planner_parameters.get('tf_reference_frame', ''),
+        prefix_tf_frames,
+    )
 
     # YAML file sets all defaults; build optional override dictionaries for frame
     # names so docker-compose / CI can tune them without touching the YAML.
@@ -98,30 +127,28 @@ def _launch_setup(context, *_args, **_kwargs):
         'noise_stddev_position': noise_stddev_position,
         'noise_mean_yaw': noise_mean_yaw,
         'noise_stddev_yaw': noise_stddev_yaw,
+        'tf_robot_pose': controller_robot_frame,
+        'tf_reference_frame': controller_reference_frame,
+        'path_topic_name': 'ref_path',
+        'cmd_vel_topic_name': 'vec_to_follow',
+        'closest_obstacle_topic_name': 'closest_obstacle',
+        'is_path_closed_service_name': 'is_path_closed',
     }
-    planner_overrides = {}
-
-    if tf_robot_pose:
-        controller_overrides['tf_robot_pose'] = tf_robot_pose
-        planner_overrides['tf_robot_pose'] = tf_robot_pose
-    else:
-        _logger.warning(
-            '⚠️  tf_robot_pose not set via launch arg — '
-            'falling back to value in %s. Pass tf_robot_pose:=<frame> '
-            'to override.',
-            params_file,
-        )
-
-    if tf_reference_frame:
-        controller_overrides['tf_reference_frame'] = tf_reference_frame
-        planner_overrides['tf_reference_frame'] = tf_reference_frame
-    else:
-        _logger.warning(
-            '⚠️  tf_reference_frame not set via launch arg — '
-            'falling back to value in %s. Pass '
-            'tf_reference_frame:=<frame> to override.',
-            params_file,
-        )
+    planner_overrides = {
+        'tf_robot_pose': planner_robot_frame,
+        'tf_reference_frame': planner_reference_frame,
+        'path_topic_name': 'ref_path',
+        'visualization_topic_name': 'visual_path',
+        'clicked_point_topic_name': 'goal_pose',
+        'start_service_name': 'start_planner',
+        'clear_service_name': 'clear_planner',
+        'is_path_closed_service_name': 'is_path_closed',
+        'remove_last_point_service_name': 'remove_last_point',
+    }
+    if controller_parameters.get('pose_topic_type') == 'TFMessage':
+        controller_overrides['pose_topic_name'] = _tf_topic(namespace_tf)
+    if planner_parameters.get('pose_topic_type') == 'TFMessage':
+        planner_overrides['pose_topic_name'] = _tf_topic(namespace_tf)
 
     if speed_ref:
         controller_overrides['speed_ref'] = float(speed_ref)
@@ -141,49 +168,13 @@ def _launch_setup(context, *_args, **_kwargs):
             params_file,
         )
 
-    if robot_namespace:
-        controller_overrides.update({
-            'path_topic_name': _robot_name(robot_namespace, 'ref_path'),
-            'cmd_vel_topic_name': _robot_name(robot_namespace, 'vec_to_follow'),
-            'closest_obstacle_topic_name': _robot_name(
-                robot_namespace, 'closest_obstacle'
-            ),
-            'is_path_closed_service_name': _robot_name(
-                robot_namespace, 'is_path_closed'
-            ),
-        })
-        planner_overrides.update({
-            'path_topic_name': _robot_name(robot_namespace, 'ref_path'),
-            'visualization_topic_name': _robot_name(
-                robot_namespace, 'visual_path'
-            ),
-            'clicked_point_topic_name': _robot_name(
-                robot_namespace, 'goal_pose'
-            ),
-            'start_service_name': _robot_name(
-                robot_namespace, 'start_planner'
-            ),
-            'clear_service_name': _robot_name(
-                robot_namespace, 'clear_planner'
-            ),
-            'is_path_closed_service_name': _robot_name(
-                robot_namespace, 'is_path_closed'
-            ),
-            'remove_last_point_service_name': _robot_name(
-                robot_namespace, 'remove_last_point'
-            ),
-        })
-
-    tf_remappings = (
-        [('/tf', 'tf'), ('/tf_static', 'tf_static')]
-        if robot_namespace and namespace_tf else []
-    )
+    tf_remappings = _tf_remappings(namespace_tf)
 
     controller_node = Node(
         package=package_name,
         executable='vector_field_controller',
         name='controller',
-        namespace=robot_namespace,
+        namespace=robot_name,
         output='screen',
         parameters=[
             controller_parameters,
@@ -197,7 +188,7 @@ def _launch_setup(context, *_args, **_kwargs):
         package='polaris_planning',
         executable='path_from_points',
         name='planner',
-        namespace=robot_namespace,
+        namespace=robot_name,
         output='screen',
         parameters=[
             planner_parameters,
@@ -207,53 +198,11 @@ def _launch_setup(context, *_args, **_kwargs):
         remappings=tf_remappings,
     )
 
-    map_frame = _resolve_tf_frame(
-        robot_namespace, 'map', prefix_tf_frames
-    )
-    odom_frame = _resolve_tf_frame(
-        robot_namespace, 'odom', prefix_tf_frames
-    )
-    body_frame = _resolve_tf_frame(
-        robot_namespace, 'body', prefix_tf_frames
-    )
-    livox_frame = _resolve_tf_frame(
-        robot_namespace, 'livox_frame', prefix_tf_frames
-    )
-
-    static_tf_map_to_odom = Node(
-        package='tf2_ros',
-        executable='static_transform_publisher',
-        name='static_map_to_odom_publisher',
-        namespace=robot_namespace,
-        arguments=['0', '0', '0', '0', '0', '0', map_frame, odom_frame],
-        parameters=[{'use_sim_time': use_sim_time}],
-        remappings=tf_remappings,
-    )
-
-    static_tf_body_to_livox_frame = Node(
-        package='tf2_ros',
-        executable='static_transform_publisher',
-        name='static_body_to_livox_frame_publisher',
-        namespace=robot_namespace,
-        # livox is 32 cm above the body frame
-        arguments=[
-            '0', '0', '0.32', '0', '0', '0', body_frame, livox_frame
-        ],
-        parameters=[{'use_sim_time': use_sim_time}],
-        remappings=tf_remappings,
-    )
-
-    return [
-        controller_node,
-        planner_node,
-        static_tf_map_to_odom,
-        static_tf_body_to_livox_frame,
-    ]
+    return [controller_node, planner_node]
 
 
 def generate_launch_description():
     """Return the configurable Polaris navigation launch description."""
-
     declare_params_file = DeclareLaunchArgument(
         'params_file',
         default_value='pioneer_params.yaml',
@@ -262,20 +211,17 @@ def generate_launch_description():
         ),
     )
 
-    declare_robot_namespace = DeclareLaunchArgument(
-        'robot_namespace',
-        default_value='',
-        description=(
-            'Namespace applied to every Polaris node and relative ROS name.'
-        ),
+    declare_robot_name = DeclareLaunchArgument(
+        'robot_name',
+        description='Robot identity applied as the Polaris ROS namespace.',
     )
 
     declare_namespace_tf = DeclareLaunchArgument(
         'namespace_tf',
         default_value='false',
         description=(
-            'Remap /tf and /tf_static into robot_namespace. Requires a '
-            'non-empty robot_namespace.'
+            'Remap /tf and /tf_static beneath robot_name. Leave false only '
+            'for legacy integrations.'
         ),
     )
 
@@ -302,7 +248,7 @@ def generate_launch_description():
         'tf_reference_frame',
         default_value='',
         description=(
-            'TF parent (world/reference) frame (e.g. sim_world). '
+            'TF parent (world/reference) frame (e.g. map). '
             'If empty, the value from params_file YAML is used.'
         ),
     )
@@ -368,8 +314,8 @@ def generate_launch_description():
         'prefix_tf_frames',
         default_value='true',
         description=(
-            'Prefix local TF frame arguments with robot_namespace exactly '
-            'once.'
+            'Prefix local TF frames with robot_name exactly once. Leave false '
+            'only for legacy integrations.'
         ),
     )
 
@@ -377,7 +323,7 @@ def generate_launch_description():
         declare_prefix_tf_frames,
         declare_use_sim_time,
         declare_params_file,
-        declare_robot_namespace,
+        declare_robot_name,
         declare_namespace_tf,
         declare_tf_robot_pose,
         declare_tf_reference_frame,

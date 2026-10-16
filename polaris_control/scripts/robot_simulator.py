@@ -20,9 +20,9 @@ class SphereDemo(Node):
 
         # --- Parâmetros do Robô ---
         self.declare_parameter('parent_frame_id', 'map')
-        self.declare_parameter('child_frame_id', 'robot/base_link')
-        self.declare_parameter('input_topic', '/cmd_vel')
-        self.declare_parameter('marker_topic', '/ball_marker')
+        self.declare_parameter('child_frame_id', 'base_link')
+        self.declare_parameter('input_topic', 'cmd_vel')
+        self.declare_parameter('marker_topic', 'ball_marker')
         self.declare_parameter('ball_radius', 0.1)
 
         # --- Parâmetros do Obstáculo ---

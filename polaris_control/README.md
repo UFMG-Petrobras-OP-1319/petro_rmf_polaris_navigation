@@ -85,20 +85,22 @@ This is the main control node. It generates velocity commands (`geometry_msgs/ms
 
 ### 2. `robot_simulator`
 
-This is a simple Python node that simulates a robot and an obstacle for testing and demonstration purposes.
+This is a legacy standalone Python node that simulates a robot and an obstacle
+for testing and demonstration purposes. Its configurable topic names are
+relative, but its TF publisher is not remapped by a robot-aware launch.
 
 #### Subscribed Topics
-- **`input_topic`** (`geometry_msgs/msg/Vector3`, default: `/cmd_vel`): Receives velocity commands to move the simulated robot.
+- **`input_topic`** (`geometry_msgs/msg/Vector3`, default: `cmd_vel`): Receives velocity commands to move the simulated robot.
 
 #### Published Topics
 - **`/tf`** (`tf2_msgs/msg/TFMessage`): Publishes the robot's coordinate transformation (from `parent_frame_id` to `child_frame_id`).
-- **`marker_topic`** (`visualization_msgs/msg/Marker`, default: `/ball_marker`): Publishes a sphere marker to visualize the robot's position in RViz.
+- **`marker_topic`** (`visualization_msgs/msg/Marker`, default: `ball_marker`): Publishes a sphere marker to visualize the robot's position in RViz.
 - **`closest_obstacle_topic`** (`geometry_msgs/msg/Point`, default: `closest_obstacle`): Publishes the position of a simulated static obstacle.
 - **`visual_obstacle_topic`** (`visualization_msgs/msg/Marker`, default: `visual_obstacle`): Publishes a sphere marker to visualize the obstacle in RViz.
 
 #### Parameters
 - `parent_frame_id` (string, default: `map`): The parent reference frame for the robot's TF.
-- `child_frame_id` (string, default: `robot/base_link`): The child reference frame for the robot's TF.
+- `child_frame_id` (string, default: `base_link`): The child reference frame for the robot's TF.
 - `ball_radius` (double, default: 0.1): The radius of the robot's visual marker.
 - `obstacle_pos` (double[], default: `[2.1, 2.1, 0.0]`): The [x, y, z] position of the static obstacle.
 - `obstacle_radius` (double, default: 0.15): The radius of the obstacle's visual marker.

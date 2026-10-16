@@ -27,8 +27,8 @@ Together they form a lightweight alternative to Nav2: click goals in RViz, get a
 flowchart TB
     subgraph External["External (robot bringup)"]
         LOC["Localization<br/>(AMCL / FAST-LIO)"]
-        LIDAR["Lidar /scan"]
-        BASE["Base driver /cmd_vel"]
+        LIDAR["Lidar /&lt;robot_name&gt;/scan"]
+        BASE["Base driver /&lt;robot_name&gt;/cmd_vel"]
     end
 
     subgraph Planning["polaris_planning"]
@@ -43,16 +43,16 @@ flowchart TB
 
     RVIZ["RViz2"]
 
-    RVIZ -->|/goal_pose| PLN
+    RVIZ -->|/&lt;robot_name&gt;/goal_pose| PLN
     LOC -->|pose / TF| PLN
     LOC -->|pose / TF| VFC
-    PLN -->|/ref_path| VFC
-    PLN <-->|/is_path_closed| VFC
+    PLN -->|/&lt;robot_name&gt;/ref_path| VFC
+    PLN <-->|/&lt;robot_name&gt;/is_path_closed| VFC
     LIDAR --> COD
     COD -->|closest_obstacle| VFC
-    VFC -->|/vec_to_follow| EXEC
-    EXEC -->|/cmd_vel| BASE
-    EXEC -.->|/clear_planner| PLN
+    VFC -->|/&lt;robot_name&gt;/vec_to_follow| EXEC
+    EXEC -->|/&lt;robot_name&gt;/cmd_vel| BASE
+    EXEC -.->|/&lt;robot_name&gt;/clear_planner| PLN
     PLN --> RVIZ
     VFC --> RVIZ
 ```
@@ -66,7 +66,7 @@ flowchart TB
 | **Low-level control** | `polaris_control` | *What wheel commands?* — feedback linearization: global velocity vector → `Twist` |
 | **Perception** | `polaris_control` | *What is blocking the path?* — DBSCAN on `LaserScan`, publishes closest obstacle point |
 
-Planning and control communicate over a small, stable ROS interface (`ref_path`, services, optional `clear_planner`). The names are relative: standalone launches resolve them at the root, while multi-robot launches resolve them below `/<robot_namespace>`. Neither package depends on the other at build time; integration happens at launch time in `polaris_control`.
+Planning and control communicate over a small, stable ROS interface (`ref_path`, services, optional `clear_planner`). The names are relative and resolve below the required `/<robot_name>` namespace. Neither package depends on the other at build time; integration happens at launch time in `polaris_control`.
 
 ---
 
@@ -78,12 +78,12 @@ These topic and service names must stay aligned between packages (configured in 
 
 | Interface | Message / service | Producer | Consumer |
 |---|---|---|---|
-| Reference path | `nav_msgs/Path` on `/ref_path` | `path_from_points` | `vector_field_controller` |
-| Path topology | `std_srvs/Trigger` on `/is_path_closed` | `path_from_points` | `vector_field_controller` |
-| Velocity setpoint | `geometry_msgs/Vector3` on `/vec_to_follow` | `vector_field_controller` | `feedback_linearization` / `follower_control` |
-| Wheel command | `geometry_msgs/Twist` on `/cmd_vel` | follower nodes | Robot base driver |
-| Goal input | `geometry_msgs/PoseStamped` on `/goal_pose` | RViz | `path_from_points` |
-| Path reset | `std_srvs/Trigger` on `/clear_planner` | — | `path_from_points` (called by `follower_control`) |
+| Reference path | `nav_msgs/Path` on `/<robot_name>/ref_path` | `path_from_points` | `vector_field_controller` |
+| Path topology | `std_srvs/Trigger` on `/<robot_name>/is_path_closed` | `path_from_points` | `vector_field_controller` |
+| Velocity setpoint | `geometry_msgs/Vector3` on `/<robot_name>/vec_to_follow` | `vector_field_controller` | `feedback_linearization` / `follower_control` |
+| Wheel command | `geometry_msgs/Twist` on `/<robot_name>/cmd_vel` | follower nodes | Robot base driver |
+| Goal input | `geometry_msgs/PoseStamped` on `/<robot_name>/goal_pose` | RViz | `path_from_points` |
+| Path reset | `std_srvs/Trigger` on `/<robot_name>/clear_planner` | — | `path_from_points` (called by `follower_control`) |
 
 All paths and poses are expressed in the **`map`** frame by default.
 
@@ -98,14 +98,15 @@ colcon build --symlink-install --packages-select polaris_planning polaris_contro
 source install/setup.bash
 
 # Terminal 1 — planning + high-level control (+ optional perception)
-ros2 launch polaris_control navigation.launch.py          # no obstacle avoidance
+ros2 launch polaris_control navigation.launch.py robot_name:=pioneer_1
 # or
-ros2 launch polaris_control safe_nav_stack.launch.py      # with closest_obstacle_detector
+ros2 launch polaris_control safe_nav_stack.launch.py      # legacy, not namespace-contract compliant
 
 # Terminal 2 — low-level execution
 ros2 launch polaris_control feedback_linearization.launch.py   # simple follower
 # or
-ros2 launch polaris_control follower_control.launch.py         # FSM: stop / align yaw
+ros2 launch polaris_control follower_control.launch.py \
+  robot_name:=pioneer_1 params_file:=pioneer_params.yaml
 ```
 
 What each integrated launch starts:
@@ -131,18 +132,19 @@ Edit `launch_planner.xml` to select `path_from_points`, `path_from_file`, or `pa
 
 ## End-to-end workflow
 
-1. **Localization** publishes robot pose (`/amcl_pose` or TF `map` → `body`).
-2. **Operator** clicks a goal in RViz (`/goal_pose`).
-3. **Planner** interpolates waypoints, publishes `/ref_path`, and exposes `/is_path_closed`.
-4. **Vector-field controller** reads path + pose (+ optional obstacle), publishes `/vec_to_follow`.
-5. **Follower** converts `/vec_to_follow` to `/cmd_vel` for the base driver.
+1. **Localization** publishes robot pose (relative `amcl_pose` or TF `map` → `body`).
+2. **Operator** clicks a goal in RViz (`/<robot_name>/goal_pose`).
+3. **Planner** publishes `/<robot_name>/ref_path` and exposes the namespaced services.
+4. **Vector-field controller** publishes `/<robot_name>/vec_to_follow`.
+5. **Follower** converts that vector to `/<robot_name>/cmd_vel`.
 6. On open paths, the controller slows near the goal and stops inside `goal_tolerance`.
 
 Optional FSM flow with `follower_control`:
 
-- `/stop_robot` → halt and call `/clear_planner`
-- `/stop_control` (`std_msgs/String`) → explicitly select `CONTROL_POSITION` or
-  `ALIGN_YAW` at `/inspection_pose`; commands are idempotent and transient-local
+- `/<robot_name>/stop_robot` → halt and call the namespaced `clear_planner`
+- `/<robot_name>/stop_control` (`std_msgs/String`) → explicitly select
+  `CONTROL_POSITION` or `ALIGN_YAW` at `/<robot_name>/inspection_pose`; commands
+  are idempotent and transient-local
 - `FollowerControlState` from `petro_rmf_utils` is the canonical definition of
   `STOPPED`, `CONTROL_POSITION`, and `ALIGN_YAW`
 
