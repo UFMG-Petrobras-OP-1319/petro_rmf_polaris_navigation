@@ -34,5 +34,5 @@
     frame_id: "map"
 
     # Topic names
-    publish_path_topic_name: "/espeleo/path"
-    visual_path_topic_name: "/visual_path"
+    publish_path_topic_name: "espeleo/path"
+    visual_path_topic_name: "visual_path"

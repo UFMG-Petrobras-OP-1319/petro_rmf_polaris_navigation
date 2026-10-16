@@ -44,7 +44,7 @@ public:
         this->declare_parameter<std::string>("visualization_topic_name", "visual_path");
         this->declare_parameter<std::string>("clicked_point_topic_name", "goal_pose");
         this->declare_parameter<std::string>("pose_topic_type", "TFMessage"); // TFMessage | Odometry | PoseWithCovarience
-        this->declare_parameter<std::string>("pose_topic_name", "/tf");
+        this->declare_parameter<std::string>("pose_topic_name", "tf");
         this->declare_parameter<std::string>("tf_reference_frame", "odom");
         this->declare_parameter<std::string>("tf_robot_pose", "body");
         this->declare_parameter<std::string>("start_service_name", "start_planner");
@@ -444,7 +444,7 @@ private:
         
         for (size_t i = 0; i < path[0].size(); ++i) {
             visualization_msgs::msg::Marker marker;
-            marker.header.frame_id = "map";
+            marker.header.frame_id = tf_reference_frame_;
             marker.header.stamp = this->now();
             marker.id = i;
             marker.type = visualization_msgs::msg::Marker::SPHERE;
@@ -472,14 +472,14 @@ private:
         auto waypoints_marker = std::make_shared<visualization_msgs::msg::MarkerArray>();
         
         visualization_msgs::msg::Marker clear_marker;
-        clear_marker.header.frame_id = "map";
+        clear_marker.header.frame_id = tf_reference_frame_;
         clear_marker.header.stamp = this->now();
         clear_marker.action = visualization_msgs::msg::Marker::DELETEALL;
         waypoints_marker->markers.push_back(clear_marker);
 
         for (size_t i = 0; i < points_.size(); ++i) {
             visualization_msgs::msg::Marker marker;
-            marker.header.frame_id = "map";
+            marker.header.frame_id = tf_reference_frame_;
             marker.header.stamp = this->now();
             marker.id = i;
             marker.type = visualization_msgs::msg::Marker::SPHERE;
@@ -531,12 +531,12 @@ private:
 
         auto poly_msg = std::make_shared<nav_msgs::msg::Path>();
         poly_msg->header.stamp = this->now();
-        poly_msg->header.frame_id = "map";
+        poly_msg->header.frame_id = tf_reference_frame_;
 
         for (size_t i = 0; i < path_planned[0].size(); ++i) {
             geometry_msgs::msg::PoseStamped pose_msg;
             pose_msg.header.stamp = this->now();
-            pose_msg.header.frame_id = "map";
+            pose_msg.header.frame_id = tf_reference_frame_;
 
             pose_msg.pose.position.x = path_planned[0][i];
             pose_msg.pose.position.y = path_planned[1][i];
@@ -579,7 +579,7 @@ private:
 
         auto poly_msg = std::make_shared<nav_msgs::msg::Path>();
         poly_msg->header.stamp = this->now();
-        poly_msg->header.frame_id = "map";
+        poly_msg->header.frame_id = tf_reference_frame_;
         pub_path_->publish(*poly_msg);
         
         response->success = true;
