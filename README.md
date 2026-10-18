@@ -141,10 +141,10 @@ Edit `launch_planner.xml` to select `path_from_points`, `path_from_file`, or `pa
 Optional FSM flow with `follower_control`:
 
 - `/stop_robot` → halt and call `/clear_planner`
-- `/stop_control` (`std_msgs/String`) → explicitly select `CONTROL_POSITION` or
-  `ALIGN_YAW` at `/inspection_pose`; commands are idempotent and transient-local
+- `/stop_control` (`std_msgs/String`) → explicitly select `CONTROL_POSITION`,
+  `ALIGN_YAW` at `/inspection_pose`, or `PAN_TILT`; commands are idempotent and transient-local
 - `FollowerControlState` from `petro_rmf_utils` is the canonical definition of
-  `STOPPED`, `CONTROL_POSITION`, and `ALIGN_YAW`
+  `STOPPED`, `CONTROL_POSITION`, `ALIGN_YAW`, and `PAN_TILT`
 
 ---
 
