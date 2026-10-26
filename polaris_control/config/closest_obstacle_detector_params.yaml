@@ -1,9 +1,9 @@
 closest_obstacle_detector:
   ros__parameters:
     # Input/Output Topics
-    input_topic: "/scan"
+    input_topic: "scan"
     output_topic: "closest_obstacle"
-    visualization_topic: "/obstacle_clusters"
+    visualization_topic: "obstacle_clusters"
     
     # Frame IDs
     laser_frame: "livox_frame"          # Frame do laser (pode ser base_link, laser, etc)
