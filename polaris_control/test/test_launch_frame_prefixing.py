@@ -47,7 +47,9 @@ def launch_module(request, monkeypatch):
         ('scout_1', 'map', True, 'scout_1/map'),
         ('scout_1', 'scout_1/map', True, 'scout_1/map'),
         ('scout_1', 'scout_10/body', True, 'scout_1/scout_10/body'),
-        ('scout_1', 'sim_world', True, 'scout_1/sim_world'),
+        ('scout_1', 'world', True, 'world'),
+        ('scout_1', 'sim_world', True, 'sim_world'),
+        ('pioneer_1', 'sim_world', True, 'sim_world'),
         ('scout_1', 'body', False, 'body'),
         ('scout_1', '', True, ''),
     ],
@@ -231,3 +233,56 @@ def test_launch_setup_namespaces_nodes_without_owning_hardware_tf(
             assert parameters[pose_topic_key] == (
                 'tf' if namespace_tf else '/tf'
             )
+
+
+@pytest.mark.parametrize(
+    ('robot_name', 'params_file'),
+    [
+        ('scout_1', 'scout_params.yaml'),
+        ('pioneer_1', 'pioneer_params.yaml'),
+    ],
+)
+def test_launch_setup_keeps_sim_world_global(
+    launch_module, robot_name, params_file
+):
+    context = LaunchContext()
+    context.launch_configurations.update({
+        'robot_name': robot_name,
+        'params_file': params_file,
+        'namespace_tf': 'true',
+        'prefix_tf_frames': 'true',
+        'use_sim_time': 'true',
+        'tf_robot_pose': robot_name,
+        'tf_reference_frame': 'sim_world',
+        'tf_inertial_link': 'sim_world',
+        'speed_ref': '',
+        'convergence_gain': '',
+        'add_measurement_noise': 'false',
+        'noise_mean_position': '0.0',
+        'noise_stddev_position': '0.0',
+        'noise_mean_yaw': '0.0',
+        'noise_stddev_yaw': '0.0',
+        'kp_pos': '1.0',
+        'kp_orient': '1.0',
+    })
+
+    found_global_parent = False
+    for action in launch_module._launch_setup(context):
+        action._perform_substitutions(context)
+        assert action.expanded_node_namespace == f'/{robot_name}'
+
+        evaluated = evaluate_parameters(context, action._Node__parameters)
+        parameters = {}
+        for parameter_set in evaluated:
+            if isinstance(parameter_set, dict):
+                parameters.update(parameter_set)
+
+        assert parameters['tf_robot_pose'] == robot_name
+        if 'tf_reference_frame' in parameters:
+            assert parameters['tf_reference_frame'] == 'sim_world'
+            found_global_parent = True
+        if 'tf_inertial_link' in parameters:
+            assert parameters['tf_inertial_link'] == 'sim_world'
+            found_global_parent = True
+
+    assert found_global_parent

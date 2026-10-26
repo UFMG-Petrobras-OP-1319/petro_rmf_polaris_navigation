@@ -36,8 +36,8 @@ def _tf_topic(namespace_tf):
 
 
 def _resolve_tf_frame(robot_name, frame, prefix_tf_frames):
-    """Apply ``robot_name`` to a TF frame at most once."""
-    if not frame:
+    """Prefix robot-local TF frames while preserving global ``sim_world``."""
+    if not frame or frame == 'sim_world' or frame == 'world':
         return frame
     if not prefix_tf_frames:
         return frame
