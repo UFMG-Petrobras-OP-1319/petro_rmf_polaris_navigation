@@ -80,3 +80,40 @@ planner:
     clear_service_name: "clear_planner"
     is_path_closed_service_name: "is_path_closed"
     remove_last_point_service_name: "remove_last_point"
+
+
+# Photos the fleet asks for (picture_taker.py, started by follower_control.launch.py).
+# The values describe the simulated robot; `hardware` overrides them on the real
+# robot (use_sim_time false). Camera names are the ones the fleet's take_picture uses.
+picture_taker:
+  ros__parameters:
+    request_topic: "take_picture_request"
+    result_topic: "take_picture_result"
+    cameras: ["default", "inspection"]
+    # Fixed RGB-D camera: Gazebo rgbd_camera in simulation, the RealSense on the robot,
+    # both served by an image_snapshot node
+    default:
+      type: "fixed"
+      service: "fixed_camera_snapshot/take_photo"
+    # Hikvision PTZ on the pan-tilt
+    inspection:
+      type: "pan_tilt"
+      service: "ptz_camera_snapshot/take_photo"
+      joint_state_topic: "joint_states"
+      pan_joint: "pan_joint"
+      tilt_joint: "tilt_joint"
+      tolerance_rad: 0.05        # per joint; pan compared modulo 2*pi
+      settle_sec: 1.0            # on target this long before the shutter (covers RTSP lag)
+      feedback_max_age_sec: 1.0
+    ready_timeout_sec: 15.0      # report a failure when not ready by then
+    service_timeout_sec: 5.0
+    still_window_sec: 1.0        # base within still_linear_m / still_angular_rad this long
+    still_linear_m: 0.02
+    still_angular_rad: 0.02
+    photo_dir: "/tmp/polaris_pictures"
+    max_width: 0                 # 0 = full resolution; otherwise scale wider photos down
+    jpeg_quality: 90             # only used when a photo is re-encoded
+    hardware:
+      inspection:
+        service: "hk_camera_rtsp_pub/take_photo"
+        joint_state_topic: "hk_camera_ptz/joint_states"

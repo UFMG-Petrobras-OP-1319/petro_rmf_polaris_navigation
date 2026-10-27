@@ -46,6 +46,29 @@ def _resolve_tf_frame(robot_name, frame, prefix_tf_frames):
     return f'{robot_name}/{frame}'
 
 
+def _merge(base, override):
+    """Return base with override merged in; nested mappings merge key by key."""
+    merged = dict(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def _picture_taker_parameters(parameters, use_sim_time):
+    """
+    Resolve the picture_taker parameters for simulation or hardware.
+
+    The section describes the simulated robot; its ``hardware`` mapping overrides
+    those values on the real robot (use_sim_time false), like the fleet configs do.
+    """
+    hardware = parameters.get('hardware') or {}
+    resolved = {key: value for key, value in parameters.items() if key != 'hardware'}
+    return resolved if use_sim_time else _merge(resolved, hardware)
+
+
 def _launch_setup(context, *args, **kwargs):
     """Evaluate launch args in context so float gains are typed correctly."""
     package_name = 'polaris_control'
@@ -125,8 +148,31 @@ def _launch_setup(context, *args, **kwargs):
         ],
         remappings=tf_remappings,
     )
+    nodes = [feedback_node]
 
-    return [feedback_node]
+    # Photos the fleet asks for, on robots whose params file describes their cameras
+    picture_section = parameter_config.get('picture_taker')
+    if picture_section:
+        nodes.append(Node(
+            package=package_name,
+            executable='picture_taker.py',
+            name='picture_taker',
+            namespace=robot_name,
+            output='screen',
+            parameters=[
+                _picture_taker_parameters(
+                    picture_section.get('ros__parameters', {}), use_sim_time
+                ),
+                {
+                    'use_sim_time': use_sim_time,
+                    'tf_robot_pose': tf_robot_pose,
+                    'tf_inertial_link': tf_inertial_link,
+                },
+            ],
+            remappings=tf_remappings,
+        ))
+
+    return nodes
 
 
 def generate_launch_description():

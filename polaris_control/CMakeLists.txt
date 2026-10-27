@@ -121,6 +121,8 @@ install(PROGRAMS
 install(PROGRAMS
   src/follower_control.py
   src/FollowerControlState.py
+  src/picture_taker.py
+  src/picture_rules.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
@@ -165,6 +167,14 @@ if(BUILD_TESTING)
   ament_add_pytest_test(
     test_launch_frame_prefixing
     test/test_launch_frame_prefixing.py
+  )
+  ament_add_pytest_test(
+    test_picture_rules
+    test/test_picture_rules.py
+  )
+  ament_add_pytest_test(
+    test_picture_taker_launch
+    test/test_picture_taker_launch.py
   )
 endif()
 
