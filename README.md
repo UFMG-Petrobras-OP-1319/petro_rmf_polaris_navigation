@@ -143,10 +143,10 @@ Optional FSM flow with `follower_control`:
 
 - `/<robot_name>/stop_robot` → halt and call the namespaced `clear_planner`
 - `/<robot_name>/stop_control` (`std_msgs/String`) → explicitly select
-  `CONTROL_POSITION` or `ALIGN_YAW` at `/<robot_name>/inspection_pose`; commands
-  are idempotent and transient-local
+  `CONTROL_POSITION`, `ALIGN_YAW` at `/<robot_name>/inspection_pose`, or
+  `PAN_TILT`; commands are idempotent and transient-local
 - `FollowerControlState` from `petro_rmf_utils` is the canonical definition of
-  `STOPPED`, `CONTROL_POSITION`, and `ALIGN_YAW`
+  `STOPPED`, `CONTROL_POSITION`, `ALIGN_YAW`, and `PAN_TILT`
 
 ---
 

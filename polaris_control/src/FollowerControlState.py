@@ -18,3 +18,6 @@ class FollowerControlState(Enum):
     STOPPED = "STOPPED"
     CONTROL_POSITION = "CONTROL_POSITION"
     ALIGN_YAW = "ALIGN_YAW"
+    # Camera gimbal move: the base holds its pose (merged from
+    # feature/pan_tilt_state, which read the enum from petro_rmf_utils).
+    PAN_TILT = "PAN_TILT"

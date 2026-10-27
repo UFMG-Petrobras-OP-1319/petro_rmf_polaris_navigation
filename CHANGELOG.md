@@ -2,6 +2,17 @@
 
 ---
 
+## 2026-10-18 - Follower Control: PAN_TILT State (#593)
+
+### Changed
+
+**`polaris_control/src/follower_control.py`**
+
+- `/stop_control` now accepts `PAN_TILT`: entering it clears the planner and holds the base still (zero `cmd_vel`, `vec_to_follow` ignored). Only `CONTROL_POSITION` leaves `PAN_TILT`; `ALIGN_YAW` is ignored there.
+- Requires `petro_rmf_utils` with `FollowerControlState.PAN_TILT` (>= `ad3af42`).
+
+---
+
 ## 2026-05-19 - Dual-Mode Follower Control: Orientation-Only P Controller
 
 ### Overview

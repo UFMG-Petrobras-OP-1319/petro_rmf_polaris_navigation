@@ -336,7 +336,9 @@ Param files use ROS 2 node namespaces (`controller:`, `feedback_linearization:`,
 | `/<robot_name>/stop_control` | `String` | External | `follower_control` |
 
 `/<robot_name>/stop_control` is a RELIABLE + TRANSIENT_LOCAL desired-state command, not a
-toggle event. The only accepted values are `ALIGN_YAW` and `CONTROL_POSITION`.
+toggle event. The only accepted values are `ALIGN_YAW`, `CONTROL_POSITION` and
+`PAN_TILT`; `PAN_TILT` holds the base still (zero `cmd_vel`, `vec_to_follow`
+ignored) until `CONTROL_POSITION`.
 Publishers must use the same message type and durability. This makes duplicate
 delivery, late-joiner replay, and rapid command replacement idempotent.
 The follower imports the canonical `FollowerControlState` enum from
