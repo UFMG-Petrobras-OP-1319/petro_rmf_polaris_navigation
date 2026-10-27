@@ -131,6 +131,9 @@ class VectorFollowerNode(Node):
         )
         self.create_subscription(
             PoseStamped, self.orient_point_topic, self._orient_target_cb, one_shot_qos)
+        # Docs/contract: /stop_robot is std_msgs/Bool. A String subscription
+        # silently dropped dashboard teleop pause pulses and left Polaris
+        # driving cmd_vel (pioneer runaway after teleop watchdog).
         self.create_subscription(Bool, self.stop_robot_topic, self._stop_robot_cb, 10)
         self.create_subscription(
             String, self.stop_control_topic, self._stop_control_cb, one_shot_qos)
@@ -169,11 +172,13 @@ class VectorFollowerNode(Node):
     # ------------------------------------------------------------------ #
 
     def vector_callback(self, msg):
-        """Store the latest desired velocity vector and trigger STOPPED→CONTROL_POSITION."""
+        """Store the latest desired velocity vector.
+
+        Leaving STOPPED requires an explicit `/stop_control` CONTROL_POSITION
+        (fleet manager) or an equivalent operator command. Auto-waking on every
+        vector used to fight dashboard teleop on the shared `cmd_vel` topic.
+        """
         self.current_vector = msg
-        if self.state == FollowerControlState.STOPPED:
-            self.state = FollowerControlState.CONTROL_POSITION
-            self.get_logger().info("FSM: STOPPED → CONTROL_POSITION")
 
     def _stop_robot_cb(self, msg: Bool):
         """Set the stop-robot flag; transition is processed in the control loop."""
@@ -253,11 +258,23 @@ class VectorFollowerNode(Node):
 
         CONTROL_POSITION → STOPPED: also calls clear_planner (discards the path reference).
         ALIGN_YAW → STOPPED: only clears the yaw reference, no planner interaction.
+
+        Idempotent: if already STOPPED, do not re-publish a zero Twist. Teleop
+        asserts /stop_robot on every cmd_vel; republishing zeros here stuttered
+        the shared cmd_vel topic and made joystick motion choppy/slow.
         """
+        if self.state == FollowerControlState.STOPPED:
+            self._requested_control_state = None
+            self.current_vector = None
+            return
+
         prev_state = self.state
         self.state = FollowerControlState.STOPPED
         self.current_vector = None
         self.orient_target = None
+        # Drop any latched CONTROL_POSITION request so teleop/stop stays in
+        # effect until the fleet manager publishes a fresh stop_control command.
+        self._requested_control_state = None
         self.cmd_vel_publisher.publish(Twist())
         if prev_state == FollowerControlState.CONTROL_POSITION:
             if self.clear_planner_client.service_is_ready():
@@ -332,7 +349,9 @@ class VectorFollowerNode(Node):
 
         # --- Dispatch per state ---
         if self.state == FollowerControlState.STOPPED:
-            self.cmd_vel_publisher.publish(Twist())
+            # Do not spam zero Twist here. Continuously publishing zeros while
+            # STOPPED fights dashboard teleop / other cmd_vel publishers on the
+            # same topic. Zero is published once in `_do_stop_robot`.
             return
 
         elif self.state == FollowerControlState.ALIGN_YAW:
