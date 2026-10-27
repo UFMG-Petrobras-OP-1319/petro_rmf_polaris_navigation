@@ -144,9 +144,13 @@ Optional FSM flow with `follower_control`:
 - `/<robot_name>/stop_robot` → halt and call the namespaced `clear_planner`
 - `/<robot_name>/stop_control` (`std_msgs/String`) → explicitly select
   `CONTROL_POSITION`, `ALIGN_YAW` at `/<robot_name>/inspection_pose`, or
-  `PAN_TILT`; commands are idempotent and transient-local
-- `FollowerControlState` from `petro_rmf_utils` is the canonical definition of
-  `STOPPED`, `CONTROL_POSITION`, `ALIGN_YAW`, and `PAN_TILT`
+  `HOLD` (base held still); commands are idempotent and transient-local
+- `FollowerControlState` (`polaris_control/src`, kept equal to the one in
+  `petro_rmf_utils`) defines `STOPPED`, `CONTROL_POSITION`, `ALIGN_YAW`, and `HOLD`
+- `picture_taker` takes the fleet's photos when the params file has a
+  `picture_taker` section: it waits until the base is still and, for a pan-tilt
+  camera, the gimbal is where the fleet aimed it, then calls the camera's
+  `take_photo` service (see `polaris_control/docs/NAVIGATION_AND_CONTROL.md`)
 
 ---
 
