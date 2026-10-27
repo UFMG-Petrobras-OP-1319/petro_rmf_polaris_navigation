@@ -18,6 +18,7 @@ class FollowerControlState(Enum):
     STOPPED = "STOPPED"
     CONTROL_POSITION = "CONTROL_POSITION"
     ALIGN_YAW = "ALIGN_YAW"
-    # Camera gimbal move: the base holds its pose (merged from
-    # feature/pan_tilt_state, which read the enum from petro_rmf_utils).
-    PAN_TILT = "PAN_TILT"
+    # The base holds its pose: zero cmd_vel, vec_to_follow ignored, until
+    # CONTROL_POSITION. The fleet manager asks for it while the camera gimbal
+    # moves and while a photo is taken (it was PAN_TILT before photos used it).
+    HOLD = "HOLD"

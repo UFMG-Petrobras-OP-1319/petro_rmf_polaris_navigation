@@ -186,12 +186,12 @@ class VectorFollowerNode(Node):
         valid_commands = {
             FollowerControlState.CONTROL_POSITION.value,
             FollowerControlState.ALIGN_YAW.value,
-            FollowerControlState.PAN_TILT.value,
+            FollowerControlState.HOLD.value,
         }
         if command not in valid_commands:
             self.get_logger().warn(
                 f"Ignoring invalid control state '{msg.data}' on "
-                f"{self.stop_control_topic}; expected CONTROL_POSITION, ALIGN_YAW or PAN_TILT."
+                f"{self.stop_control_topic}; expected CONTROL_POSITION, ALIGN_YAW or HOLD."
             )
             return
 
@@ -254,7 +254,7 @@ class VectorFollowerNode(Node):
 
         CONTROL_POSITION → STOPPED: also calls clear_planner (discards the path reference).
         ALIGN_YAW → STOPPED: only clears the yaw reference, no planner interaction.
-        PAN_TILT → STOPPED: no planner interaction (the planner was cleared on entry).
+        HOLD → STOPPED: no planner interaction (the planner was cleared on entry).
         """
         prev_state = self.state
         self.state = FollowerControlState.STOPPED
@@ -311,7 +311,7 @@ class VectorFollowerNode(Node):
             if (
                 requested_state == FollowerControlState.ALIGN_YAW
                 and self.state != FollowerControlState.ALIGN_YAW
-                and self.state != FollowerControlState.PAN_TILT
+                and self.state != FollowerControlState.HOLD
             ):
                 self.state = requested_state
                 self.current_vector = None
@@ -322,8 +322,8 @@ class VectorFollowerNode(Node):
                         f"clear_planner service '{self.clear_planner_service_name}' not available; skipping."
                     )
             elif (
-                requested_state == FollowerControlState.PAN_TILT
-                and self.state != FollowerControlState.PAN_TILT
+                requested_state == FollowerControlState.HOLD
+                and self.state != FollowerControlState.HOLD
             ):
                 self.state = requested_state
                 self.current_vector = None
@@ -356,7 +356,7 @@ class VectorFollowerNode(Node):
         elif self.state == FollowerControlState.CONTROL_POSITION:
             self._run_control_position()
 
-        elif self.state == FollowerControlState.PAN_TILT:
+        elif self.state == FollowerControlState.HOLD:
             self.cmd_vel_publisher.publish(Twist())
 
     # ------------------------------------------------------------------ #
