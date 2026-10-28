@@ -3,6 +3,10 @@
 import math
 
 from FollowerControlState import FollowerControlState
+from follower_fsm import apply_control_request
+from follower_fsm import is_external_command_fresh
+from follower_fsm import parse_control_request
+from follower_fsm import vector_starts_control
 import numpy as np
 import rclpy
 from rclpy.duration import Duration
@@ -59,6 +63,8 @@ class VectorFollowerNode(Node):
         self.declare_parameter('stop_robot_topic', "stop_robot")
         self.declare_parameter('stop_control_topic', "stop_control")
         self.declare_parameter('clear_planner_service', "clear_planner")
+        self.declare_parameter('external_cmd_vel_topic', "cmd_vel_external")
+        self.declare_parameter('external_cmd_timeout', 0.25)
 
         self.distancia_ponto_controle = self.get_parameter('distancia_ponto_controle').get_parameter_value().double_value
         self.const_vel = self.get_parameter('const_vel').get_parameter_value().double_value
@@ -82,6 +88,11 @@ class VectorFollowerNode(Node):
         self.stop_robot_topic = self.get_parameter('stop_robot_topic').get_parameter_value().string_value
         self.stop_control_topic = self.get_parameter('stop_control_topic').get_parameter_value().string_value
         self.clear_planner_service_name = self.get_parameter('clear_planner_service').get_parameter_value().string_value
+        self.external_cmd_vel_topic = self.get_parameter('external_cmd_vel_topic').get_parameter_value().string_value
+        self.external_cmd_timeout = self.get_parameter('external_cmd_timeout').get_parameter_value().double_value
+        if self.external_cmd_timeout <= 0.0:
+            self.get_logger().warn("external_cmd_timeout must be positive; using 0.25s.")
+            self.external_cmd_timeout = 0.25
 
         # ## TF2 Listener ##
         if self.pose_topic_type == "TFMessage":
@@ -134,6 +145,9 @@ class VectorFollowerNode(Node):
         self.create_subscription(Bool, self.stop_robot_topic, self._stop_robot_cb, 10)
         self.create_subscription(
             String, self.stop_control_topic, self._stop_control_cb, one_shot_qos)
+        # Velocity commands from another controller, forwarded only in EXTERNAL.
+        self.create_subscription(
+            Twist, self.external_cmd_vel_topic, self._external_cmd_cb, 10)
 
         # ## Service client for clearing the planner ##
         self.clear_planner_client = self.create_client(Trigger, self.clear_planner_service_name)
@@ -154,6 +168,8 @@ class VectorFollowerNode(Node):
         self.orient_target = None
         self.robot_x = None
         self.robot_y = None
+        self.external_cmd = None
+        self.external_cmd_received_sec = None
 
         # ## Control timer ##
         self.timer = self.create_timer(self.timer_period, self.control_loop)
@@ -171,9 +187,14 @@ class VectorFollowerNode(Node):
     def vector_callback(self, msg):
         """Store the latest desired velocity vector and trigger STOPPED→CONTROL_POSITION."""
         self.current_vector = msg
-        if self.state == FollowerControlState.STOPPED:
+        if vector_starts_control(self.state):
             self.state = FollowerControlState.CONTROL_POSITION
             self.get_logger().info("FSM: STOPPED → CONTROL_POSITION")
+
+    def _external_cmd_cb(self, msg: Twist):
+        """Store the latest external velocity command with its arrival time."""
+        self.external_cmd = msg
+        self.external_cmd_received_sec = self.get_clock().now().nanoseconds / 1e9
 
     def _stop_robot_cb(self, msg: Bool):
         """Set the stop-robot flag; transition is processed in the control loop."""
@@ -182,19 +203,15 @@ class VectorFollowerNode(Node):
 
     def _stop_control_cb(self, msg: String):
         """Store the latest explicit, idempotent follower control state."""
-        command = msg.data.strip()
-        valid_commands = {
-            FollowerControlState.CONTROL_POSITION.value,
-            FollowerControlState.ALIGN_YAW.value,
-        }
-        if command not in valid_commands:
+        requested_state = parse_control_request(msg.data)
+        if requested_state is None:
             self.get_logger().warn(
                 f"Ignoring invalid control state '{msg.data}' on "
-                f"{self.stop_control_topic}; expected CONTROL_POSITION or ALIGN_YAW."
+                f"{self.stop_control_topic}; expected CONTROL_POSITION, "
+                "ALIGN_YAW or EXTERNAL."
             )
             return
 
-        requested_state = FollowerControlState(command)
         pending_before = self._requested_control_state
         self._requested_control_state = requested_state
         self.control_state_rx_count += 1
@@ -268,11 +285,70 @@ class VectorFollowerNode(Node):
                 )
         self.get_logger().info(f"FSM: {prev_state.value} → STOPPED (stop_robot received)")
 
+    def _clear_planner(self):
+        if self.clear_planner_client.service_is_ready():
+            self.clear_planner_client.call_async(Trigger.Request())
+        else:
+            self.get_logger().warn(
+                f"clear_planner service '{self.clear_planner_service_name}' not available; skipping."
+            )
+
+    def _enter_external(self):
+        """Hand the base to the external controller without stale references.
+
+        The path is cleared so the vector field cannot pull the robot back to
+        its previous goal once the external controller goes quiet.
+        """
+        previous_state = self.state
+        self.state = FollowerControlState.EXTERNAL
+        self.current_vector = None
+        self.orient_target = None
+        self.external_cmd = None
+        self.external_cmd_received_sec = None
+        self.cmd_vel_publisher.publish(Twist())
+        if previous_state != FollowerControlState.EXTERNAL:
+            self._clear_planner()
+        self.control_state_applied_count += 1
+        self.get_logger().info(
+            "[FOLLOWER_CONTROL_STATE_APPLIED] "
+            f"applied_count={self.control_state_applied_count} "
+            f"requested={FollowerControlState.EXTERNAL.value} "
+            f"state_before={previous_state.value} state_after={self.state.value} "
+            f"transitioned={previous_state != self.state}"
+        )
+
+    def _handle_external_control(self) -> bool:
+        """Run EXTERNAL independently of pose availability.
+
+        Returns True when this tick was fully handled here.
+        """
+        if self._requested_control_state == FollowerControlState.EXTERNAL:
+            self._requested_control_state = None
+            self._enter_external()
+
+        if self.state != FollowerControlState.EXTERNAL:
+            return False
+
+        if self._stop_robot_flag:
+            self._stop_robot_flag = False
+            self._do_stop_robot()
+            return True
+
+        if self._requested_control_state is not None:
+            # CONTROL_POSITION / ALIGN_YAW leave EXTERNAL in the regular path.
+            return False
+
+        self._run_external()
+        return True
+
     # ------------------------------------------------------------------ #
     #  Control loop                                                        #
     # ------------------------------------------------------------------ #
 
     def control_loop(self):
+        if self._handle_external_control():
+            return
+
         # --- Update pose from TF when applicable ---
         if self.pose_topic_type == "TFMessage":
             if not self._update_theta_from_tf():
@@ -298,28 +374,25 @@ class VectorFollowerNode(Node):
 
         # STOPPED remains controlled by stop_robot and vector availability. Keep
         # the latest requested mode pending until the follower is active again.
-        if (
-            self._requested_control_state is not None
-            and self.state != FollowerControlState.STOPPED
-        ):
+        # EXTERNAL requests are applied earlier by _handle_external_control().
+        next_state = None
+        if self._requested_control_state is not None:
+            next_state = apply_control_request(
+                self.state, self._requested_control_state)
+        if next_state is not None:
             requested_state = self._requested_control_state
             self._requested_control_state = None
             previous_state = self.state
 
             if (
-                requested_state == FollowerControlState.ALIGN_YAW
+                next_state == FollowerControlState.ALIGN_YAW
                 and self.state != FollowerControlState.ALIGN_YAW
             ):
-                self.state = requested_state
+                self.state = next_state
                 self.current_vector = None
-                if self.clear_planner_client.service_is_ready():
-                    self.clear_planner_client.call_async(Trigger.Request())
-                else:
-                    self.get_logger().warn(
-                        f"clear_planner service '{self.clear_planner_service_name}' not available; skipping."
-                    )
-            elif requested_state == FollowerControlState.CONTROL_POSITION:
-                self.state = requested_state
+                self._clear_planner()
+            elif next_state == FollowerControlState.CONTROL_POSITION:
+                self.state = next_state
 
             self.control_state_applied_count += 1
             self.get_logger().info(
@@ -344,6 +417,20 @@ class VectorFollowerNode(Node):
     # ------------------------------------------------------------------ #
     #  State behaviours                                                    #
     # ------------------------------------------------------------------ #
+
+    def _run_external(self):
+        """Forward a fresh external command; hold zero velocity otherwise.
+
+        The watchdog matters because the simulated DiffDrive base keeps its
+        last command indefinitely.
+        """
+        now_sec = self.get_clock().now().nanoseconds / 1e9
+        if is_external_command_fresh(
+            self.external_cmd_received_sec, now_sec, self.external_cmd_timeout
+        ):
+            self.cmd_vel_publisher.publish(self.external_cmd)
+        else:
+            self.cmd_vel_publisher.publish(Twist())
 
     def _run_align_yaw(self):
         """P controller that rotates the robot to face orient_target."""

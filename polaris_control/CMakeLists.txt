@@ -121,6 +121,7 @@ install(PROGRAMS
 install(PROGRAMS
   src/follower_control.py
   src/FollowerControlState.py
+  src/follower_fsm.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
@@ -165,6 +166,10 @@ if(BUILD_TESTING)
   ament_add_pytest_test(
     test_launch_frame_prefixing
     test/test_launch_frame_prefixing.py
+  )
+  ament_add_pytest_test(
+    test_follower_fsm
+    test/test_follower_fsm.py
   )
 endif()
 

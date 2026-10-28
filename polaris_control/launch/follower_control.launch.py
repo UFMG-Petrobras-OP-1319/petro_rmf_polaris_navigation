@@ -106,6 +106,9 @@ def _launch_setup(context, *args, **kwargs):
         'stop_robot_topic': 'stop_robot',
         'stop_control_topic': 'stop_control',
         'clear_planner_service': 'clear_planner',
+        # Docking server output, forwarded only in the EXTERNAL state so that
+        # cmd_vel keeps a single publisher.
+        'external_cmd_vel_topic': 'cmd_vel_external',
     }
     if follower_parameters.get('pose_topic_type') == 'TFMessage':
         overrides['pose_topic'] = _tf_topic(namespace_tf)
