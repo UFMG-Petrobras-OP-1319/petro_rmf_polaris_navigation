@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import math
+import time
 
 from FollowerControlState import FollowerControlState
 import numpy as np
@@ -144,6 +145,10 @@ class VectorFollowerNode(Node):
         # ## FSM state ##
         self.state = FollowerControlState.STOPPED
         self._stop_robot_flag = False
+        # Monotonic time of the last /stop_robot handling. Teleop keepalives
+        # refresh this so a latched /stop_control is not applied mid-teleop.
+        self._last_stop_robot_at: float | None = None
+        self._teleop_hold_sec = 1.0
         self._requested_control_state = None
         self.control_state_rx_count = 0
         self.control_state_applied_count = 0
@@ -259,12 +264,12 @@ class VectorFollowerNode(Node):
         CONTROL_POSITION → STOPPED: also calls clear_planner (discards the path reference).
         ALIGN_YAW → STOPPED: only clears the yaw reference, no planner interaction.
 
-        Idempotent: if already STOPPED, do not re-publish a zero Twist. Teleop
-        asserts /stop_robot on every cmd_vel; republishing zeros here stuttered
-        the shared cmd_vel topic and made joystick motion choppy/slow.
+        Idempotent: if already STOPPED, refresh the teleop hold clock but do not
+        re-publish a zero Twist (that stuttered teleop) and do not discard a
+        latched /stop_control that arrived after the first stop.
         """
+        self._last_stop_robot_at = time.monotonic()
         if self.state == FollowerControlState.STOPPED:
-            self._requested_control_state = None
             self.current_vector = None
             return
 
@@ -272,8 +277,8 @@ class VectorFollowerNode(Node):
         self.state = FollowerControlState.STOPPED
         self.current_vector = None
         self.orient_target = None
-        # Drop any latched CONTROL_POSITION request so teleop/stop stays in
-        # effect until the fleet manager publishes a fresh stop_control command.
+        # Drop any latched request from before this stop so teleop owns cmd_vel
+        # until the fleet manager publishes a fresh /stop_control afterward.
         self._requested_control_state = None
         self.cmd_vel_publisher.publish(Twist())
         if prev_state == FollowerControlState.CONTROL_POSITION:
@@ -313,12 +318,14 @@ class VectorFollowerNode(Node):
             self._stop_robot_flag = False
             self._do_stop_robot()
 
-        # STOPPED remains controlled by stop_robot and vector availability. Keep
-        # the latest requested mode pending until the follower is active again.
-        if (
-            self._requested_control_state is not None
-            and self.state != FollowerControlState.STOPPED
-        ):
+        # Apply latched /stop_control, including STOPPED → active. While teleop
+        # keepalives refresh `_last_stop_robot_at`, hold off so we do not fight
+        # dashboard cmd_vel; once keepalives stop, the pending request wakes us.
+        teleop_hold = (
+            self._last_stop_robot_at is not None
+            and (time.monotonic() - self._last_stop_robot_at) < self._teleop_hold_sec
+        )
+        if self._requested_control_state is not None and not teleop_hold:
             requested_state = self._requested_control_state
             self._requested_control_state = None
             previous_state = self.state
