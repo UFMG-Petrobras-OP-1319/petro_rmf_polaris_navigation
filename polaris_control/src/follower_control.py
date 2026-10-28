@@ -186,11 +186,12 @@ class VectorFollowerNode(Node):
         valid_commands = {
             FollowerControlState.CONTROL_POSITION.value,
             FollowerControlState.ALIGN_YAW.value,
+            FollowerControlState.HOLD.value,
         }
         if command not in valid_commands:
             self.get_logger().warn(
                 f"Ignoring invalid control state '{msg.data}' on "
-                f"{self.stop_control_topic}; expected CONTROL_POSITION or ALIGN_YAW."
+                f"{self.stop_control_topic}; expected CONTROL_POSITION, ALIGN_YAW or HOLD."
             )
             return
 
@@ -253,6 +254,7 @@ class VectorFollowerNode(Node):
 
         CONTROL_POSITION → STOPPED: also calls clear_planner (discards the path reference).
         ALIGN_YAW → STOPPED: only clears the yaw reference, no planner interaction.
+        HOLD → STOPPED: no planner interaction (the planner was cleared on entry).
         """
         prev_state = self.state
         self.state = FollowerControlState.STOPPED
@@ -309,6 +311,19 @@ class VectorFollowerNode(Node):
             if (
                 requested_state == FollowerControlState.ALIGN_YAW
                 and self.state != FollowerControlState.ALIGN_YAW
+                and self.state != FollowerControlState.HOLD
+            ):
+                self.state = requested_state
+                self.current_vector = None
+                if self.clear_planner_client.service_is_ready():
+                    self.clear_planner_client.call_async(Trigger.Request())
+                else:
+                    self.get_logger().warn(
+                        f"clear_planner service '{self.clear_planner_service_name}' not available; skipping."
+                    )
+            elif (
+                requested_state == FollowerControlState.HOLD
+                and self.state != FollowerControlState.HOLD
             ):
                 self.state = requested_state
                 self.current_vector = None
@@ -340,6 +355,9 @@ class VectorFollowerNode(Node):
 
         elif self.state == FollowerControlState.CONTROL_POSITION:
             self._run_control_position()
+
+        elif self.state == FollowerControlState.HOLD:
+            self.cmd_vel_publisher.publish(Twist())
 
     # ------------------------------------------------------------------ #
     #  State behaviours                                                    #
