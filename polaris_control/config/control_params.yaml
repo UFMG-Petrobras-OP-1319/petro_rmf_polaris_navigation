@@ -36,7 +36,7 @@ pose_topic_name: pose
 # Odometry
 pose_topic_type: Pose
 
-trajectory_topic_name: /espeleo/traj_points
+trajectory_topic_name: espeleo/traj_points
 
 #Name of the topic in which the forward and angular velocities will be published
 cmd_vel_topic_name: cmd_vel
@@ -56,7 +56,7 @@ epsilon: 0.7
 switch_dist: 1.3
 
 #Name of the topic in which the laser data will be obtained
-laser_topic_name: /point_cloud_converter/closest_point
+laser_topic_name: point_cloud_converter/closest_point
 #Type of the topic in which the laser data will be obtained (options below)
 # LaserScan
 # Point

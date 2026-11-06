@@ -208,8 +208,8 @@ private:
         this->declare_parameter<double>("marker_scale", 0.15);
         this->declare_parameter<double>("marker_z_offset", -0.1);
         this->declare_parameter<std::string>("frame_id", "map");
-        this->declare_parameter<std::string>("publish_path_topic_name", "/ref_path");
-        this->declare_parameter<std::string>("visual_path_topic_name", "/visual_path");
+        this->declare_parameter<std::string>("publish_path_topic_name", "ref_path");
+        this->declare_parameter<std::string>("visual_path_topic_name", "visual_path");
         this->declare_parameter<std::string>("is_path_closed_service_name", "is_path_closed"); // <-- NEW
     }
 
