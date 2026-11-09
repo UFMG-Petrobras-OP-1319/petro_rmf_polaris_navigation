@@ -137,27 +137,6 @@ def _launch_setup(context, *args, **kwargs):
 
     tf_remappings = _tf_remappings(namespace_tf)
 
-    if robot_namespace:
-        overrides.update({
-            'cmd_vel_topic': _robot_name(robot_namespace, 'cmd_vel'),
-            'vec_to_follow_topic': _robot_name(
-                robot_namespace, 'vec_to_follow'
-            ),
-            'orient_point_topic': _robot_name(
-                robot_namespace, 'inspection_pose'
-            ),
-            'stop_robot_topic': _robot_name(robot_namespace, 'stop_robot'),
-            'stop_control_topic': _robot_name(robot_namespace, 'stop_control'),
-            'clear_planner_service': _robot_name(
-                robot_namespace, 'clear_planner'
-            ),
-        })
-
-    tf_remappings = (
-        [('/tf', 'tf'), ('/tf_static', 'tf_static')]
-        if robot_namespace and namespace_tf else []
-    )
-
     feedback_node = Node(
         package=package_name,
         executable='follower_control.py',
@@ -250,7 +229,7 @@ def generate_launch_description():
     # Empty string means: use whatever is in the params YAML.
     declare_tf_robot_pose = DeclareLaunchArgument(
         'tf_robot_pose',
-        default_value='base_link',
+        default_value='',
         description=(
             'TF child frame for the robot body (e.g. pioneer, scout_mini). '
             'If empty, the value from params_file YAML is used.'
@@ -261,7 +240,7 @@ def generate_launch_description():
     # Empty string means: use whatever is in the params YAML.
     declare_tf_inertial_link = DeclareLaunchArgument(
         'tf_inertial_link',
-        default_value='sim_world',
+        default_value='',
         description=(
             'TF parent (world/inertial) frame (e.g. map). '
             'If empty, the value from params_file YAML is used.'
