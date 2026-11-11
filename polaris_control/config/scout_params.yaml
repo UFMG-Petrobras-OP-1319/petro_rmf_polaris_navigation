@@ -115,6 +115,11 @@ picture_taker:
       tilt_cmd_topic: "tilt_camera_cmd"
       return_timeout_sec: 10.0
       return_tolerance_rad: 0.02
+      # Atomic radians + direct zoom return, supported by the extended PTZ fix.
+      # Used only after return_to_forward and forward_pose_calibrated are enabled.
+      return_command_topic: "hk_camera_ptz/joint_absolute"
+      return_position_topic: "hk_camera_ptz/joint_position"
+      forward_zoom: 1.0
     ready_timeout_sec: 15.0      # report a failure when not ready by then
     service_timeout_sec: 5.0
     still_window_sec: 1.0        # base within still_linear_m / still_angular_rad this long

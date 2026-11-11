@@ -35,6 +35,7 @@ import os
 import re
 
 from hk_camera_interfaces.srv import TakePhoto
+from geometry_msgs.msg import Vector3, Vector3Stamped
 from capture_delivery import CaptureDelivery
 import picture_rules as rules
 import rclpy
@@ -68,6 +69,9 @@ CAMERA_KEYS = (
     ('tilt_cmd_topic', ''),
     ('return_timeout_sec', 10.0),
     ('return_tolerance_rad', 0.02),
+    ('return_command_topic', ''),
+    ('return_position_topic', ''),
+    ('forward_zoom', 1.0),
 )
 
 WAITING = 'waiting'
@@ -168,14 +172,24 @@ class PictureTaker(Node):
         self.clients_by_camera = {}
         self.joint_states = {}
         self.return_publishers = {}
+        self.return_positions = {}
         for camera in self.cameras.values():
             self.clients_by_camera[camera.name] = self.create_client(TakePhoto, camera.service)
             if camera.return_to_forward:
                 # Volatile: reconnecting must never replay an old movement command.
-                self.return_publishers[camera.name] = (
-                    self.create_publisher(Float64, camera.pan_cmd_topic, 10),
-                    self.create_publisher(Float64, camera.tilt_cmd_topic, 10),
-                )
+                if camera.return_command_topic:
+                    self.return_publishers[camera.name] = (
+                        self.create_publisher(Vector3, camera.return_command_topic, 10),)
+                    self.return_positions[camera.name] = None
+                    self.create_subscription(
+                        Vector3Stamped, camera.return_position_topic,
+                        lambda msg, name=camera.name: self._on_return_position(name, msg),
+                        qos_profile_sensor_data)
+                else:
+                    self.return_publishers[camera.name] = (
+                        self.create_publisher(Float64, camera.pan_cmd_topic, 10),
+                        self.create_publisher(Float64, camera.tilt_cmd_topic, 10),
+                    )
             if camera.kind == rules.PAN_TILT and camera.joint_state_topic not in self.joint_states:
                 self.joint_states[camera.joint_state_topic] = None
                 self.create_subscription(
@@ -230,6 +244,22 @@ class PictureTaker(Node):
         names, positions, received = stored
         joints = rules.joint_positions(names, positions, camera.pan_joint, camera.tilt_joint)
         return joints, self._now() - received
+
+    def _on_return_position(self, name, msg):
+        stamp = msg.header.stamp.sec + msg.header.stamp.nanosec / 1e9
+        # An unstamped position cannot establish post-command freshness.
+        if stamp > 0:
+            self.return_positions[name] = (
+                {'pan': msg.vector.x, 'tilt': msg.vector.y, 'zoom': msg.vector.z}, stamp)
+
+    def _measured_return_position(self, camera):
+        if camera.return_command_topic:
+            stored = self.return_positions.get(camera.name)
+            if stored is None:
+                return None, None
+            position, stamp = stored
+            return position, self._now() - stamp
+        return self._measured_joints(camera)
 
     def _update_pose(self, now):
         try:
@@ -513,18 +543,25 @@ class PictureTaker(Node):
     def _check_return(self, now):
         job = self.job
         publishers = self.return_publishers[job.camera.name]
-        joints, age = self._measured_joints(job.camera)
+        joints, age = self._measured_return_position(job.camera)
         sampled_at = None if age is None else now - age
         outcome = job.forward_return.update(
             now, joints, sampled_at,
             all(publisher.get_subscription_count() > 0 for publisher in publishers),
         )
         if outcome == 'command':
-            publishers[0].publish(Float64(data=job.camera.forward_pan_rad))
-            publishers[1].publish(Float64(data=job.camera.forward_tilt_rad))
+            if job.camera.return_command_topic:
+                publishers[0].publish(Vector3(
+                    x=job.camera.forward_pan_rad, y=job.camera.forward_tilt_rad,
+                    z=job.camera.forward_zoom))
+            else:
+                publishers[0].publish(Float64(data=job.camera.forward_pan_rad))
+                publishers[1].publish(Float64(data=job.camera.forward_tilt_rad))
         elif outcome == 'done':
             result = json.loads(job.terminal_result)
-            result['resting_joints'] = joints
+            result['resting_joints'] = {axis: joints[axis] for axis in ('pan', 'tilt')}
+            if 'zoom' in joints:
+                result['resting_zoom'] = joints['zoom']
             self._finish_result(json.dumps(result))
         elif outcome == 'failed':
             original = json.loads(job.terminal_result)

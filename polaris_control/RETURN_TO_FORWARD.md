@@ -17,19 +17,26 @@ inspection:
   tilt_cmd_topic: tilt_camera_cmd
   return_timeout_sec: 10.0
   return_tolerance_rad: 0.02
+  return_command_topic: hk_camera_ptz/joint_absolute
+  return_position_topic: hk_camera_ptz/joint_position
+  forward_zoom: 1.0
 ```
 
 Angles are joint coordinates after the PTZ driver's sign/offset mapping, not raw
 ISAPI angles. A zero offset in the driver is not evidence of chassis-forward
 calibration. Keep motor topics and feedback under the same robot namespace.
-The existing PTZ driver attempts to preserve zoom by copying status into its
-absolute command. The approved 2026-11-11 hardware check reached pan=0, tilt=0,
-but raw zoom changed from 306 to 160 despite that copy. Zoom preservation is
-therefore NOT validated on this firmware. Keep automatic return disabled until
-that driver behavior is corrected and independently tested with approval.
+The original PTZ driver attempts to preserve zoom through its legacy absolute
+endpoint. The first approved zero check changed zoom despite that copy. The
+extended API subsequently preserved direct zoom 16 during a pan adjustment and
+accepted the operator's requested unzoomed view at direct zoom 1. Use the PTZ
+driver companion with joint_absolute_api set to extended for this Scout.
+The configured atomic command and stamped feedback topics verify zoom as well
+as both axes; split-axis return topics remain available for other deployments.
+Keep return disabled until the operator selects the final home pose and the
+patched driver is installed and tested in an approved camera-only session.
 
-The robot waits for fresh feedback and both command subscribers before sending
-one absolute pair of targets. It does not repeatedly fight a head that is not
+The robot waits for fresh feedback and its command subscriber(s) before sending
+one absolute target. It does not repeatedly fight a head that is not
 moving. It confirms both axes continuously over settle_sec using distinct fresh
 samples. Missing/stale feedback, missing subscribers, or an unsuccessful return
 produce a failed result rather than successful completion. A JPEG already taken

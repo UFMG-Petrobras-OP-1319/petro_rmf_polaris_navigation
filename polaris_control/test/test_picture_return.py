@@ -82,7 +82,7 @@ class Publisher:
         return 1
 
     def publish(self, msg):
-        self.messages.append(msg.data)
+        self.messages.append(msg.data if hasattr(msg, 'data') else (msg.x, msg.y, msg.z))
 
 
 class Harness:
@@ -94,6 +94,8 @@ class Harness:
     _check_return = PictureTaker._check_return
     _finish_result = PictureTaker._finish_result
     _on_request = PictureTaker._on_request
+    _on_return_position = PictureTaker._on_return_position
+    _measured_return_position = PictureTaker._measured_return_position
 
     def __init__(self, tmp_path, config):
         self.time = 10.0
@@ -106,7 +108,9 @@ class Harness:
         self.pose = {'x': 1.0, 'y': 2.0, 'yaw': 0.5}
         self.joints = {'pan': 1.0, 'tilt': 0.5}
         self.age = 0.0
-        self.return_publishers = {config.name: (Publisher(), Publisher())}
+        publishers = (Publisher(),) if config.return_command_topic else (Publisher(), Publisher())
+        self.return_publishers = {config.name: publishers}
+        self.return_positions = {}
         self.results = []
         self.seen_requests = deque(maxlen=64)
         self.capture_delivery = SimpleNamespace(
@@ -240,3 +244,46 @@ def test_request_budget_reserves_time_to_return_before_fleet_timeout(tmp_path):
         request_id='shot-2', camera='inspection', timeout_sec=30.0))))
     assert node.job.deadline + node.service_timeout + 10.0 == node.job.result_deadline
     assert node.job.result_deadline < node.time + 30.0
+
+
+def test_atomic_return_restores_zoom_and_waits_for_it_before_success(tmp_path):
+    config = camera(return_command_topic='joint_absolute', return_position_topic='joint_position')
+    node = captured_job(tmp_path, config)
+
+    def feedback(now, pan, tilt, zoom):
+        node.time = now
+        node.return_positions[config.name] = (
+            {'pan': pan, 'tilt': tilt, 'zoom': zoom}, now)
+        node._check_return(now)
+
+    feedback(10.1, 1.0, 0.5, 8.0)
+    assert node.return_publishers[config.name][0].messages == [(0.2, -0.1, 1.0)]
+    feedback(10.2, 0.2, -0.1, 2.0)
+    feedback(11.3, 0.2, -0.1, 2.0)
+    assert node.results == []  # pan/tilt alone do not establish the requested view
+    feedback(11.5, 0.2, -0.1, 1.0)
+    feedback(12.6, 0.2, -0.1, 1.0)
+    assert node.results[0]['state'] == 'succeeded'
+    assert node.results[0]['resting_zoom'] == 1.0
+    assert node.results[0]['resting_joints'] == {'pan': 0.2, 'tilt': -0.1}
+    assert len(node.return_publishers[config.name][0].messages) == 1
+
+
+def test_atomic_return_requires_stamped_feedback(tmp_path):
+    config = camera(return_command_topic='joint_absolute', return_position_topic='joint_position')
+    node = captured_job(tmp_path, config)
+    msg = SimpleNamespace(header=SimpleNamespace(stamp=SimpleNamespace(sec=0, nanosec=0)),
+                          vector=SimpleNamespace(x=0.2, y=-0.1, z=1.0))
+    node._on_return_position(config.name, msg)
+    node._check_return(10.1)
+    assert node.return_publishers[config.name][0].messages == []
+
+
+@pytest.mark.parametrize('overrides', [
+    {'return_command_topic': 'joint_absolute'},
+    {'return_position_topic': 'joint_position'},
+    {'forward_zoom': 0}, {'forward_zoom': math.inf},
+])
+def test_atomic_return_rejects_incomplete_configuration(overrides):
+    with pytest.raises(ValueError):
+        camera(**overrides)

@@ -62,6 +62,9 @@ class CameraConfig:
     tilt_cmd_topic: str = ''
     return_timeout_sec: float = 10.0
     return_tolerance_rad: float = 0.02
+    return_command_topic: str = ''
+    return_position_topic: str = ''
+    forward_zoom: float = 1.0
 
 
 def _finite_number(value, name):
@@ -145,6 +148,9 @@ def parse_camera(name: str, values: dict) -> CameraConfig:
             values.get('return_timeout_sec', 10.0), 'return_timeout_sec'),
         return_tolerance_rad=_finite_number(
             values.get('return_tolerance_rad', 0.02), 'return_tolerance_rad'),
+        return_command_topic=values.get('return_command_topic', ''),
+        return_position_topic=values.get('return_position_topic', ''),
+        forward_zoom=_finite_number(values.get('forward_zoom', 1.0), 'forward_zoom'),
     )
     if config.kind == PAN_TILT and not config.joint_state_topic:
         raise ValueError(f'camera {name!r}: a pan_tilt camera needs joint_state_topic')
@@ -154,9 +160,13 @@ def parse_camera(name: str, values: dict) -> CameraConfig:
     if config.return_to_forward:
         if config.kind != PAN_TILT or not config.forward_pose_calibrated:
             raise ValueError(f'camera {name!r}: return needs a calibrated pan_tilt forward pose')
-        if not config.pan_cmd_topic or not config.tilt_cmd_topic:
+        if bool(config.return_command_topic) != bool(config.return_position_topic):
+            raise ValueError('atomic return needs both return_command_topic and return_position_topic')
+        if config.forward_zoom <= 0:
+            raise ValueError('forward_zoom must be positive')
+        if not config.return_command_topic and (not config.pan_cmd_topic or not config.tilt_cmd_topic):
             raise ValueError(f'camera {name!r}: return needs both command topics')
-        if config.pan_cmd_topic == config.tilt_cmd_topic:
+        if not config.return_command_topic and config.pan_cmd_topic == config.tilt_cmd_topic:
             raise ValueError('pan and tilt command topics must differ')
         if config.return_timeout_sec <= 0 or config.return_tolerance_rad <= 0:
             raise ValueError('return timeout and tolerance must be positive')
@@ -218,6 +228,8 @@ class ForwardReturn:
         expected = {'pan': self.camera.forward_pan_rad, 'tilt': self.camera.forward_tilt_rad}
         errors = gimbal_errors(expected, joints)
         within = max(errors) <= self.camera.return_tolerance_rad
+        if self.camera.return_command_topic:
+            within = within and abs(joints.get('zoom', math.inf) - self.camera.forward_zoom) <= 0.01
         if not within and self.commanded_at is None:
             self.window.update(False, now)
             if not connected:
@@ -228,6 +240,8 @@ class ForwardReturn:
             return 'command'
         self.window.update(within, sampled_at)
         self.reason = f'forward errors pan={errors[0]:.3f}, tilt={errors[1]:.3f} rad'
+        if self.camera.return_command_topic:
+            self.reason += f', zoom={joints.get("zoom")} (wanted {self.camera.forward_zoom})'
         if within and self.window.held_for(sampled_at) >= self.camera.settle_sec:
             return 'done'
         return 'waiting'
