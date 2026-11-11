@@ -22,7 +22,11 @@ inspection:
 Angles are joint coordinates after the PTZ driver's sign/offset mapping, not raw
 ISAPI angles. A zero offset in the driver is not evidence of chassis-forward
 calibration. Keep motor topics and feedback under the same robot namespace.
-Zoom is preserved by the existing PTZ driver; this change does not set zoom.
+The existing PTZ driver attempts to preserve zoom by copying status into its
+absolute command. The approved 2026-11-11 hardware check reached pan=0, tilt=0,
+but raw zoom changed from 306 to 160 despite that copy. Zoom preservation is
+therefore NOT validated on this firmware. Keep automatic return disabled until
+that driver behavior is corrected and independently tested with approval.
 
 The robot waits for fresh feedback and both command subscribers before sending
 one absolute pair of targets. It does not repeatedly fight a head that is not
