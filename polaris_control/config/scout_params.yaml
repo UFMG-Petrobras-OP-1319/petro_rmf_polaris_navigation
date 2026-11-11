@@ -105,6 +105,16 @@ picture_taker:
       tolerance_rad: 0.05        # per joint; pan compared modulo 2*pi
       settle_sec: 1.0            # on target this long before the shutter (covers RTSP lag)
       feedback_max_age_sec: 1.0
+      # Enable only after an operator verifies that these joint coordinates face
+      # forward on this mount. Merely setting a numeric zero is not calibration.
+      return_to_forward: false
+      forward_pose_calibrated: false
+      forward_pan_rad: 0.0
+      forward_tilt_rad: 0.0
+      pan_cmd_topic: "pan_camera_cmd"
+      tilt_cmd_topic: "tilt_camera_cmd"
+      return_timeout_sec: 10.0
+      return_tolerance_rad: 0.02
     ready_timeout_sec: 15.0      # report a failure when not ready by then
     service_timeout_sec: 5.0
     still_window_sec: 1.0        # base within still_linear_m / still_angular_rad this long

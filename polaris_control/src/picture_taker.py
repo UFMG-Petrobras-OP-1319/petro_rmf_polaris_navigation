@@ -13,6 +13,9 @@ the photo back:
      joints are within tolerance_rad of expected_joints (pan modulo 2*pi), with fresh
      feedback, and stayed there for settle_sec;
   3. the camera's take_photo service answers with a frame captured after 1 and 2 held.
+  4. when return_to_forward is configured with a calibrated pose, persist the shot
+     before moving, then verify fresh feedback at that pose before the final result.
+     The result's joints remain the shutter pose; resting_joints report the return.
 
 Anything that keeps the photo from being taken before ready_timeout_sec is reported back
 as a failure with the reason, so the fleet can fail the task.
@@ -26,6 +29,7 @@ Cameras are configured by the name the fleet uses (default, inspection, ...):
 
 from collections import deque
 from datetime import datetime, timezone
+import json
 import math
 import os
 import re
@@ -43,7 +47,7 @@ from rclpy.qos import QoSProfile
 from rclpy.qos import QoSReliabilityPolicy
 from rclpy.time import Time
 from sensor_msgs.msg import JointState
-from std_msgs.msg import String
+from std_msgs.msg import Float64, String
 import tf2_ros
 from tf2_ros import TransformException
 
@@ -56,10 +60,19 @@ CAMERA_KEYS = (
     ('tolerance_rad', 0.05),
     ('settle_sec', 1.0),
     ('feedback_max_age_sec', 1.0),
+    ('return_to_forward', False),
+    ('forward_pose_calibrated', False),
+    ('forward_pan_rad', 0.0),
+    ('forward_tilt_rad', 0.0),
+    ('pan_cmd_topic', ''),
+    ('tilt_cmd_topic', ''),
+    ('return_timeout_sec', 10.0),
+    ('return_tolerance_rad', 0.02),
 )
 
 WAITING = 'waiting'
 CAPTURING = 'capturing'
+RETURNING = 'returning'
 
 
 def _yaw(rotation) -> float:
@@ -84,6 +97,9 @@ class Job:
         self.ready_since = None
         self.retry_at = 0.0
         self.last_camera_error = ''
+        self.terminal_result = None
+        self.forward_return = None
+        self.result_deadline = None
 
 
 class PictureTaker(Node):
@@ -151,8 +167,15 @@ class PictureTaker(Node):
 
         self.clients_by_camera = {}
         self.joint_states = {}
+        self.return_publishers = {}
         for camera in self.cameras.values():
             self.clients_by_camera[camera.name] = self.create_client(TakePhoto, camera.service)
+            if camera.return_to_forward:
+                # Volatile: reconnecting must never replay an old movement command.
+                self.return_publishers[camera.name] = (
+                    self.create_publisher(Float64, camera.pan_cmd_topic, 10),
+                    self.create_publisher(Float64, camera.tilt_cmd_topic, 10),
+                )
             if camera.kind == rules.PAN_TILT and camera.joint_state_topic not in self.joint_states:
                 self.joint_states[camera.joint_state_topic] = None
                 self.create_subscription(
@@ -196,7 +219,8 @@ class PictureTaker(Node):
         return self.get_clock().now().nanoseconds / 1e9
 
     def _on_joint_state(self, topic, msg):
-        self.joint_states[topic] = (list(msg.name), list(msg.position), self._now())
+        stamp = msg.header.stamp.sec + msg.header.stamp.nanosec / 1e9
+        self.joint_states[topic] = (list(msg.name), list(msg.position), stamp or self._now())
 
     def _measured_joints(self, camera):
         """Joints of a pan_tilt camera and how old they are, or (None, None)."""
@@ -240,6 +264,11 @@ class PictureTaker(Node):
         self.seen_requests.append(request.request_id)
 
         if self.job is not None:
+            if self.job.camera.return_to_forward:
+                self._publish(rules.failed(
+                    request.request_id, request.camera,
+                    f'camera busy with {self.job.request.request_id}; retry with a new request_id'))
+                return
             self._finish_failed(f'superseded by request {request.request_id}')
 
         camera = self.cameras.get(request.camera)
@@ -258,6 +287,15 @@ class PictureTaker(Node):
         if request.timeout_sec is not None:
             timeout = min(timeout, request.timeout_sec)
         self.job = Job(request, camera, now, now + timeout)
+        if camera.return_to_forward:
+            budget = request.timeout_sec or (
+                self.ready_timeout + self.service_timeout + camera.return_timeout_sec + 1.0)
+            self.job.result_deadline = now + budget - 0.5
+            # Reserve time for the service and return before the fleet's timeout.
+            self.job.deadline = min(
+                self.job.deadline,
+                self.job.result_deadline - self.service_timeout - camera.return_timeout_sec,
+            )
         self._publish(rules.accepted(request.request_id, camera.name))
         aim = (
             f'gimbal expected at pan {request.expected_joints["pan"]:.3f}, '
@@ -281,8 +319,10 @@ class PictureTaker(Node):
             return
         if self.job.phase == WAITING:
             self._wait_until_ready(now)
-        else:
+        elif self.job.phase == CAPTURING:
             self._check_capture(now)
+        elif self.job.phase == RETURNING:
+            self._check_return(now)
 
     def _readiness(self, now):
         """Return (when everything became ready, or None, and what is still missing)."""
@@ -308,7 +348,7 @@ class PictureTaker(Node):
                 reasons.append(
                     f'no {camera.pan_joint}/{camera.tilt_joint} feedback on '
                     f'{camera.joint_state_topic}')
-            elif age > camera.feedback_max_age_sec:
+            elif age < 0 or age > camera.feedback_max_age_sec:
                 job.gimbal_window.update(False, now)
                 reasons.append(f'gimbal feedback is {age:.1f}s old')
             else:
@@ -333,6 +373,9 @@ class PictureTaker(Node):
     def _wait_until_ready(self, now):
         job = self.job
         if now < job.retry_at:
+            return
+        if job.camera.return_to_forward and now >= job.deadline:
+            self._finish_failed('photo readiness budget expired; reserving time to return forward')
             return
         ready_since, reasons = self._readiness(now)
         if ready_since is not None:
@@ -436,24 +479,69 @@ class PictureTaker(Node):
         except Exception as error:
             self._finish_failed(f'could not persist the captured photo: {error}')
             return
-        if not self.keep_photos and os.path.exists(path):
-            os.remove(path)
-        self._publish(rules.succeeded(
+        result = rules.succeeded(
             request_id, job.camera.name, jpeg, width, height,
             stamp if stamp > 0.0 else now, joints, self.pose,
-        ))
+        )
         self.get_logger().info(
-            f'Photo {request_id} sent: {width}x{height}, {len(jpeg)} bytes, camera '
+            f'Photo {request_id} retained: {width}x{height}, {len(jpeg)} bytes, camera '
             f'{job.camera.name}, {now - job.started:.1f}s after the request'
             + (f', joints pan {joints["pan"]:.3f} tilt {joints["tilt"]:.3f}' if joints else '')
         )
-        self.job = None
+        self._complete_or_return(result)
 
     def _finish_failed(self, reason):
         job = self.job
-        self.job = None
         self.get_logger().error(f'Photo {job.request.request_id} failed: {reason}')
-        self._publish(rules.failed(job.request.request_id, job.camera.name, reason))
+        self._complete_or_return(rules.failed(job.request.request_id, job.camera.name, reason))
+
+    def _complete_or_return(self, result):
+        job = self.job
+        if not job.camera.return_to_forward:
+            self._finish_result(result)
+            return
+        now = self._now()
+        job.terminal_result = result
+        job.phase = RETURNING
+        job.forward_return = rules.ForwardReturn(
+            job.camera, now,
+            min(now + job.camera.return_timeout_sec, job.result_deadline),
+        )
+        self.get_logger().info(
+            f'Photo {job.request.request_id}: confirming calibrated forward pose before result')
+
+    def _check_return(self, now):
+        job = self.job
+        publishers = self.return_publishers[job.camera.name]
+        joints, age = self._measured_joints(job.camera)
+        sampled_at = None if age is None else now - age
+        outcome = job.forward_return.update(
+            now, joints, sampled_at,
+            all(publisher.get_subscription_count() > 0 for publisher in publishers),
+        )
+        if outcome == 'command':
+            publishers[0].publish(Float64(data=job.camera.forward_pan_rad))
+            publishers[1].publish(Float64(data=job.camera.forward_tilt_rad))
+        elif outcome == 'done':
+            result = json.loads(job.terminal_result)
+            result['resting_joints'] = joints
+            self._finish_result(json.dumps(result))
+        elif outcome == 'failed':
+            original = json.loads(job.terminal_result)
+            reason = f'return to forward failed: {job.forward_return.reason}'
+            if original['state'] == rules.FAILED:
+                reason = f'{original["reason"]}; {reason}'
+            if original['state'] == rules.SUCCEEDED:
+                reason += f'; captured photo retained at {self._photo_path()}'
+            self._finish_result(rules.failed(job.request.request_id, job.camera.name, reason))
+
+    def _finish_result(self, result):
+        path = self._photo_path()
+        if json.loads(result)['state'] == rules.SUCCEEDED and not self.keep_photos:
+            if os.path.exists(path):
+                os.remove(path)
+        self._publish(result)
+        self.job = None
 
     def _publish(self, text):
         self.result_publisher.publish(String(data=text))

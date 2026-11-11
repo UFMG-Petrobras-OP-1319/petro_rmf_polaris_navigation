@@ -54,6 +54,14 @@ class CameraConfig:
     tolerance_rad: float = 0.05
     settle_sec: float = 1.0
     feedback_max_age_sec: float = 1.0
+    return_to_forward: bool = False
+    forward_pose_calibrated: bool = False
+    forward_pan_rad: float = 0.0
+    forward_tilt_rad: float = 0.0
+    pan_cmd_topic: str = ''
+    tilt_cmd_topic: str = ''
+    return_timeout_sec: float = 10.0
+    return_tolerance_rad: float = 0.02
 
 
 def _finite_number(value, name):
@@ -127,9 +135,35 @@ def parse_camera(name: str, values: dict) -> CameraConfig:
         tolerance_rad=float(values.get('tolerance_rad', 0.05)),
         settle_sec=float(values.get('settle_sec', 1.0)),
         feedback_max_age_sec=float(values.get('feedback_max_age_sec', 1.0)),
+        return_to_forward=values.get('return_to_forward', False),
+        forward_pose_calibrated=values.get('forward_pose_calibrated', False),
+        forward_pan_rad=_finite_number(values.get('forward_pan_rad', 0.0), 'forward_pan_rad'),
+        forward_tilt_rad=_finite_number(values.get('forward_tilt_rad', 0.0), 'forward_tilt_rad'),
+        pan_cmd_topic=values.get('pan_cmd_topic', ''),
+        tilt_cmd_topic=values.get('tilt_cmd_topic', ''),
+        return_timeout_sec=_finite_number(
+            values.get('return_timeout_sec', 10.0), 'return_timeout_sec'),
+        return_tolerance_rad=_finite_number(
+            values.get('return_tolerance_rad', 0.02), 'return_tolerance_rad'),
     )
     if config.kind == PAN_TILT and not config.joint_state_topic:
         raise ValueError(f'camera {name!r}: a pan_tilt camera needs joint_state_topic')
+    if (not isinstance(config.return_to_forward, bool)
+            or not isinstance(config.forward_pose_calibrated, bool)):
+        raise ValueError('return_to_forward and forward_pose_calibrated must be booleans')
+    if config.return_to_forward:
+        if config.kind != PAN_TILT or not config.forward_pose_calibrated:
+            raise ValueError(f'camera {name!r}: return needs a calibrated pan_tilt forward pose')
+        if not config.pan_cmd_topic or not config.tilt_cmd_topic:
+            raise ValueError(f'camera {name!r}: return needs both command topics')
+        if config.pan_cmd_topic == config.tilt_cmd_topic:
+            raise ValueError('pan and tilt command topics must differ')
+        if config.return_timeout_sec <= 0 or config.return_tolerance_rad <= 0:
+            raise ValueError('return timeout and tolerance must be positive')
+        if not math.isfinite(config.settle_sec) or config.settle_sec <= 0:
+            raise ValueError('return requires a positive finite settle_sec')
+        if not math.isfinite(config.feedback_max_age_sec) or config.feedback_max_age_sec <= 0:
+            raise ValueError('return requires a positive finite feedback_max_age_sec')
     return config
 
 
@@ -156,7 +190,47 @@ def joint_positions(names, positions, pan_joint: str, tilt_joint: str) -> Option
     lookup = dict(zip(names, positions))
     if pan_joint not in lookup or tilt_joint not in lookup:
         return None
-    return {'pan': float(lookup[pan_joint]), 'tilt': float(lookup[tilt_joint])}
+    joints = {'pan': float(lookup[pan_joint]), 'tilt': float(lookup[tilt_joint])}
+    return joints if all(math.isfinite(value) for value in joints.values()) else None
+
+
+@dataclass
+class ForwardReturn:
+    """One bounded absolute return, confirmed by fresh feedback, with no retries."""
+
+    camera: CameraConfig
+    started: float
+    deadline: float
+    commanded_at: Optional[float] = None
+    window: 'StableWindow' = field(default_factory=lambda: StableWindow())
+    reason: str = 'waiting for fresh gimbal feedback'
+
+    def update(self, now, joints, sampled_at, connected):
+        if now >= self.deadline:
+            return 'failed'
+        if (joints is None or sampled_at is None or sampled_at < self.started
+                or not 0 <= now - sampled_at <= self.camera.feedback_max_age_sec
+                or not all(math.isfinite(value) for value in joints.values())
+                or (self.commanded_at is not None and sampled_at <= self.commanded_at)):
+            self.window.update(False, now)
+            self.reason = 'waiting for fresh gimbal feedback'
+            return 'waiting'
+        expected = {'pan': self.camera.forward_pan_rad, 'tilt': self.camera.forward_tilt_rad}
+        errors = gimbal_errors(expected, joints)
+        within = max(errors) <= self.camera.return_tolerance_rad
+        if not within and self.commanded_at is None:
+            self.window.update(False, now)
+            if not connected:
+                self.reason = 'waiting for both PTZ command subscribers'
+                return 'waiting'
+            self.commanded_at = now
+            self.reason = 'waiting for the forward pose'
+            return 'command'
+        self.window.update(within, sampled_at)
+        self.reason = f'forward errors pan={errors[0]:.3f}, tilt={errors[1]:.3f} rad'
+        if within and self.window.held_for(sampled_at) >= self.camera.settle_sec:
+            return 'done'
+        return 'waiting'
 
 
 @dataclass

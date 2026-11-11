@@ -177,7 +177,10 @@ if(BUILD_TESTING)
     test_picture_taker_launch
     test/test_picture_taker_launch.py
   )
+  ament_add_pytest_test(
+    test_picture_return
+    test/test_picture_return.py
+  )
 endif()
 
 ament_package()
-
