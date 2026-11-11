@@ -96,6 +96,7 @@ class Harness:
     _on_request = PictureTaker._on_request
     _on_return_position = PictureTaker._on_return_position
     _measured_return_position = PictureTaker._measured_return_position
+    _readiness = PictureTaker._readiness
 
     def __init__(self, tmp_path, config):
         self.time = 10.0
@@ -107,6 +108,8 @@ class Harness:
         self.jpeg_quality = 90
         self.pose = {'x': 1.0, 'y': 2.0, 'yaw': 0.5}
         self.joints = {'pan': 1.0, 'tilt': 0.5}
+        self.job.capture_pose = dict(self.pose)
+        self.job.capture_joints = dict(self.joints)
         self.age = 0.0
         publishers = (Publisher(),) if config.return_command_topic else (Publisher(), Publisher())
         self.return_publishers = {config.name: publishers}
@@ -287,3 +290,27 @@ def test_atomic_return_requires_stamped_feedback(tmp_path):
 def test_atomic_return_rejects_incomplete_configuration(overrides):
     with pytest.raises(ValueError):
         camera(**overrides)
+
+
+def test_manager_cached_target_is_reissued_once_after_the_camera_returned_home():
+    config = camera(aim_pan_cmd_topic='pan', aim_tilt_cmd_topic='tilt')
+    node = Harness(Path('/tmp'), config)
+    node.job.request = rules.PictureRequest(
+        'shot-2', 'inspection', {'pan': 0.2, 'tilt': -0.1}, 30.0)
+    node.job.started = 10.0
+    node.joints = {'pan': 0.0, 'tilt': 0.0}
+    node.pose_time = 10.0
+    node.pose_max_age = 1.0
+    node.stillness = SimpleNamespace(still_since=lambda _now: 9.0)
+    node.clients_by_camera = {'inspection': SimpleNamespace(service_is_ready=lambda: True)}
+    node.aim_publishers = {'inspection': (Publisher(), Publisher())}
+
+    ready, reasons = node._readiness(10.0)
+    assert ready is None
+    assert 're-aiming the PTZ once to the manager target' in reasons
+    assert node.aim_publishers['inspection'][0].messages == [0.2]
+    assert node.aim_publishers['inspection'][1].messages == [-0.1]
+
+    node._readiness(10.1)
+    assert node.aim_publishers['inspection'][0].messages == [0.2]
+    assert node.aim_publishers['inspection'][1].messages == [-0.1]

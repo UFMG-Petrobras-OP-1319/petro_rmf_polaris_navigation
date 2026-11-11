@@ -60,6 +60,8 @@ def test_simulation_uses_the_snapshot_services(launch_module, params_file):
     assert parameters['default.service'] == 'fixed_camera_snapshot/take_photo'
     assert parameters['inspection.service'] == 'ptz_camera_snapshot/take_photo'
     assert parameters['inspection.joint_state_topic'] == 'joint_states'
+    assert not parameters.get('inspection.return_to_forward', False)
+    assert not parameters.get('inspection.aim_pan_cmd_topic', '')
     assert parameters['tf_inertial_link'] == 'sim_world'
     assert not any(key.startswith('hardware') for key in parameters)
 
@@ -70,6 +72,17 @@ def test_hardware_uses_the_hikvision_driver(launch_module, params_file):
 
     assert parameters['inspection.service'] == 'hk_camera_rtsp_pub/take_photo'
     assert parameters['inspection.joint_state_topic'] == 'hk_camera_ptz/joint_states'
+    if params_file == 'scout_params.yaml':
+        assert parameters['inspection.return_to_forward']
+        assert parameters['inspection.forward_pan_rad'] == 0.0
+        assert parameters['inspection.forward_tilt_rad'] == 0.0
+        assert parameters['inspection.forward_zoom'] == 1.0
+        assert parameters['inspection.aim_pan_cmd_topic'] == 'pan_camera_cmd'
+        assert parameters['inspection.aim_tilt_cmd_topic'] == 'tilt_camera_cmd'
+        assert parameters['ready_timeout_sec'] == 8.0
+    else:
+        assert not parameters.get('inspection.return_to_forward', False)
+        assert not parameters.get('inspection.aim_pan_cmd_topic', '')
     # Untouched by the overrides
     assert parameters['inspection.tolerance_rad'] == 0.05
     assert parameters['default.service'] == 'fixed_camera_snapshot/take_photo'

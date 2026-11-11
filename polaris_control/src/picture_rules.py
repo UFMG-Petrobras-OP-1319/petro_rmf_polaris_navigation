@@ -60,6 +60,8 @@ class CameraConfig:
     forward_tilt_rad: float = 0.0
     pan_cmd_topic: str = ''
     tilt_cmd_topic: str = ''
+    aim_pan_cmd_topic: str = ''
+    aim_tilt_cmd_topic: str = ''
     return_timeout_sec: float = 10.0
     return_tolerance_rad: float = 0.02
     return_command_topic: str = ''
@@ -144,6 +146,8 @@ def parse_camera(name: str, values: dict) -> CameraConfig:
         forward_tilt_rad=_finite_number(values.get('forward_tilt_rad', 0.0), 'forward_tilt_rad'),
         pan_cmd_topic=values.get('pan_cmd_topic', ''),
         tilt_cmd_topic=values.get('tilt_cmd_topic', ''),
+        aim_pan_cmd_topic=values.get('aim_pan_cmd_topic', ''),
+        aim_tilt_cmd_topic=values.get('aim_tilt_cmd_topic', ''),
         return_timeout_sec=_finite_number(
             values.get('return_timeout_sec', 10.0), 'return_timeout_sec'),
         return_tolerance_rad=_finite_number(
@@ -154,6 +158,10 @@ def parse_camera(name: str, values: dict) -> CameraConfig:
     )
     if config.kind == PAN_TILT and not config.joint_state_topic:
         raise ValueError(f'camera {name!r}: a pan_tilt camera needs joint_state_topic')
+    if bool(config.aim_pan_cmd_topic) != bool(config.aim_tilt_cmd_topic):
+        raise ValueError('aim_pan_cmd_topic and aim_tilt_cmd_topic must be configured together')
+    if config.aim_pan_cmd_topic and config.aim_pan_cmd_topic == config.aim_tilt_cmd_topic:
+        raise ValueError('pan and tilt aim command topics must differ')
     if (not isinstance(config.return_to_forward, bool)
             or not isinstance(config.forward_pose_calibrated, bool)):
         raise ValueError('return_to_forward and forward_pose_calibrated must be booleans')

@@ -67,6 +67,8 @@ CAMERA_KEYS = (
     ('forward_tilt_rad', 0.0),
     ('pan_cmd_topic', ''),
     ('tilt_cmd_topic', ''),
+    ('aim_pan_cmd_topic', ''),
+    ('aim_tilt_cmd_topic', ''),
     ('return_timeout_sec', 10.0),
     ('return_tolerance_rad', 0.02),
     ('return_command_topic', ''),
@@ -103,6 +105,9 @@ class Job:
         self.last_camera_error = ''
         self.terminal_result = None
         self.forward_return = None
+        self.aim_commanded = False
+        self.capture_pose = None
+        self.capture_joints = None
         self.result_deadline = None
 
 
@@ -152,7 +157,15 @@ class PictureTaker(Node):
             outbox_dir, robot_name, token=os.environ.get('DATA_COLLECTOR_API_TOKEN', ''),
             logger=self.get_logger())
 
+        # Photo requests are live commands: reconnecting must never replay a
+        # historical request and move the PTZ. Collector discovery remains durable.
         request_qos = QoSProfile(
+            history=QoSHistoryPolicy.KEEP_LAST,
+            depth=1,
+            reliability=QoSReliabilityPolicy.RELIABLE,
+            durability=QoSDurabilityPolicy.VOLATILE,
+        )
+        collector_qos = QoSProfile(
             history=QoSHistoryPolicy.KEEP_LAST,
             depth=1,
             reliability=QoSReliabilityPolicy.RELIABLE,
@@ -167,14 +180,20 @@ class PictureTaker(Node):
         self.result_publisher = self.create_publisher(String, self.result_topic, result_qos)
         self.create_subscription(String, self.request_topic, self._on_request, request_qos)
         self.create_subscription(String, 'data_collector/service_info',
-                                 self._on_collector_info, request_qos)
+                                 self._on_collector_info, collector_qos)
 
         self.clients_by_camera = {}
         self.joint_states = {}
         self.return_publishers = {}
         self.return_positions = {}
+        self.aim_publishers = {}
         for camera in self.cameras.values():
             self.clients_by_camera[camera.name] = self.create_client(TakePhoto, camera.service)
+            if camera.aim_pan_cmd_topic:
+                self.aim_publishers[camera.name] = (
+                    self.create_publisher(Float64, camera.aim_pan_cmd_topic, 10),
+                    self.create_publisher(Float64, camera.aim_tilt_cmd_topic, 10),
+                )
             if camera.return_to_forward:
                 # Volatile: reconnecting must never replay an old movement command.
                 if camera.return_command_topic:
@@ -385,6 +404,15 @@ class PictureTaker(Node):
                 pan_error, tilt_error = rules.gimbal_errors(expected, joints)
                 within = pan_error <= camera.tolerance_rad and tilt_error <= camera.tolerance_rad
                 job.gimbal_window.update(within, now)
+                if not within and not job.aim_commanded and camera.name in self.aim_publishers:
+                    publishers = self.aim_publishers[camera.name]
+                    if all(publisher.get_subscription_count() > 0 for publisher in publishers):
+                        publishers[0].publish(Float64(data=expected['pan']))
+                        publishers[1].publish(Float64(data=expected['tilt']))
+                        job.aim_commanded = True
+                        reasons.append('re-aiming the PTZ once to the manager target')
+                    else:
+                        reasons.append('waiting for both PTZ aim command subscribers')
                 if not within:
                     reasons.append(
                         f'gimbal off target: pan error {pan_error:.3f} rad, tilt error '
@@ -430,6 +458,10 @@ class PictureTaker(Node):
     def _start_capture(self, now, ready_since):
         job = self.job
         job.ready_since = ready_since
+        job.capture_pose = (dict(self.pose, frame_id=self.tf_inertial_link,
+                                 robot_frame=self.tf_robot_pose) if self.pose is not None else None)
+        if job.camera.kind == rules.PAN_TILT:
+            job.capture_joints, _ = self._measured_joints(job.camera)
         job.phase = CAPTURING
         job.capture_deadline = now + self.service_timeout
         job.future = self.clients_by_camera[job.camera.name].call_async(
@@ -486,9 +518,7 @@ class PictureTaker(Node):
         except (OSError, ValueError) as error:
             self._finish_failed(f'could not read the photo {path}: {error}')
             return
-        joints = None
-        if job.camera.kind == rules.PAN_TILT:
-            joints, _ = self._measured_joints(job.camera)
+        joints = job.capture_joints
         request_id = job.request.request_id
         # Persist the robot's own capture before the existing fleet result is sent.
         # Only the collector knows which mission/target this opaque ID belongs to.
@@ -502,8 +532,7 @@ class PictureTaker(Node):
                 'capture_stamp_ns': str(response.stamp.sec * 1_000_000_000 + response.stamp.nanosec)
                                     if stamp > 0 else str(round(now * 1e9)),
                 'capture_clock': 'ros' if simulation else 'utc',
-                'pose': dict(self.pose, frame_id=self.tf_inertial_link,
-                             robot_frame=self.tf_robot_pose),
+                'pose': job.capture_pose,
                 'joints': joints,
             })
         except Exception as error:
@@ -511,7 +540,7 @@ class PictureTaker(Node):
             return
         result = rules.succeeded(
             request_id, job.camera.name, jpeg, width, height,
-            stamp if stamp > 0.0 else now, joints, self.pose,
+            stamp if stamp > 0.0 else now, joints, job.capture_pose,
         )
         self.get_logger().info(
             f'Photo {request_id} retained: {width}x{height}, {len(jpeg)} bytes, camera '

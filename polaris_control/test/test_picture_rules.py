@@ -175,3 +175,17 @@ class TestResults:
         assert json.loads(rules.failed('id', 'inspection', 'why')) == {
             'request_id': 'id', 'state': 'failed', 'camera': 'inspection', 'reason': 'why'}
         assert json.loads(rules.accepted('id', 'default'))['state'] == 'accepted'
+
+
+def test_aim_topics_must_be_configured_as_a_distinct_pair():
+    with pytest.raises(ValueError):
+        rules.parse_camera('inspection', {
+            'type': rules.PAN_TILT, 'service': 'take_photo',
+            'joint_state_topic': 'joints', 'aim_pan_cmd_topic': 'pan',
+        })
+    with pytest.raises(ValueError):
+        rules.parse_camera('inspection', {
+            'type': rules.PAN_TILT, 'service': 'take_photo',
+            'joint_state_topic': 'joints', 'aim_pan_cmd_topic': 'pan',
+            'aim_tilt_cmd_topic': 'pan',
+        })
