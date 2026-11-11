@@ -292,21 +292,36 @@ def test_atomic_return_rejects_incomplete_configuration(overrides):
         camera(**overrides)
 
 
-def test_manager_cached_target_is_reissued_once_after_the_camera_returned_home():
+@pytest.mark.parametrize('pose_time, initially_still', [
+    (None, None),       # no robot pose
+    (8.0, 7.0),         # stale robot pose, even with an old stillness window
+    (10.0, None),       # fresh pose, moving base
+    (10.0, 9.0),        # already stationary
+])
+def test_manager_cached_target_is_reissued_once_after_the_camera_returned_home(
+        pose_time, initially_still):
     config = camera(aim_pan_cmd_topic='pan', aim_tilt_cmd_topic='tilt')
     node = Harness(Path('/tmp'), config)
     node.job.request = rules.PictureRequest(
         'shot-2', 'inspection', {'pan': 0.2, 'tilt': -0.1}, 30.0)
     node.job.started = 10.0
     node.joints = {'pan': 0.0, 'tilt': 0.0}
-    node.pose_time = 10.0
+    node.pose_time = pose_time
     node.pose_max_age = 1.0
-    node.stillness = SimpleNamespace(still_since=lambda _now: 9.0)
+    node.stillness = SimpleNamespace(still_since=lambda _now: initially_still)
     node.clients_by_camera = {'inspection': SimpleNamespace(service_is_ready=lambda: True)}
     node.aim_publishers = {'inspection': (Publisher(), Publisher())}
 
     ready, reasons = node._readiness(10.0)
     assert ready is None
+    if pose_time is None or pose_time < 9.0 or initially_still is None:
+        assert node.aim_publishers['inspection'][0].messages == []
+        assert node.aim_publishers['inspection'][1].messages == []
+        assert not node.job.aim_commanded
+        node.pose_time = 10.0
+        node.stillness = SimpleNamespace(still_since=lambda _now: 9.0)
+        ready, reasons = node._readiness(10.0)
+        assert ready is None
     assert 're-aiming the PTZ once to the manager target' in reasons
     assert node.aim_publishers['inspection'][0].messages == [0.2]
     assert node.aim_publishers['inspection'][1].messages == [-0.1]

@@ -404,7 +404,8 @@ class PictureTaker(Node):
                 pan_error, tilt_error = rules.gimbal_errors(expected, joints)
                 within = pan_error <= camera.tolerance_rad and tilt_error <= camera.tolerance_rad
                 job.gimbal_window.update(within, now)
-                if not within and not job.aim_commanded and camera.name in self.aim_publishers:
+                if (still_since is not None and not within and not job.aim_commanded
+                        and camera.name in self.aim_publishers):
                     publishers = self.aim_publishers[camera.name]
                     if all(publisher.get_subscription_count() > 0 for publisher in publishers):
                         publishers[0].publish(Float64(data=expected['pan']))
