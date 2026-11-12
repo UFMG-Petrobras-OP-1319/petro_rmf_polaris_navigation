@@ -388,7 +388,8 @@ class PictureTaker(Node):
             if still_since is None:
                 reasons.append('the base is moving')
 
-        ready_since = still_since
+        # A cached frame must postdate the completed stillness window, not its start.
+        ready_since = (still_since + self.still_window if still_since is not None else None)
         expected = job.request.expected_joints
         if camera.kind == rules.PAN_TILT and expected is not None:
             joints, age = self._measured_joints(camera)
@@ -421,7 +422,8 @@ class PictureTaker(Node):
                 elif job.gimbal_window.held_for(now) < camera.settle_sec:
                     reasons.append('gimbal settling')
                 elif ready_since is not None:
-                    ready_since = max(ready_since, job.gimbal_window.since())
+                    ready_since = max(
+                        ready_since, job.gimbal_window.since() + camera.settle_sec)
 
         if not self.clients_by_camera[camera.name].service_is_ready():
             service = self.resolve_service_name(camera.service)
