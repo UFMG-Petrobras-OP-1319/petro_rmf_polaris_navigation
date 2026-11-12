@@ -26,7 +26,7 @@ def launch_module(monkeypatch):
     return module
 
 
-def _picture_taker_parameters(module, params_file, use_sim_time):
+def _runtime_parameters(module, params_file, use_sim_time):
     context = LaunchContext()
     context.launch_configurations.update({
         'robot_name': 'scout_1',
@@ -54,7 +54,7 @@ def _picture_taker_parameters(module, params_file, use_sim_time):
 
 @pytest.mark.parametrize('params_file', ['scout_params.yaml', 'pioneer_params.yaml'])
 def test_simulation_uses_the_snapshot_services(launch_module, params_file):
-    parameters = _picture_taker_parameters(launch_module, params_file, use_sim_time=True)
+    parameters = _runtime_parameters(launch_module, params_file, use_sim_time=True)
 
     assert list(parameters['cameras']) == ['default', 'inspection']
     assert parameters['default.service'] == 'fixed_camera_snapshot/take_photo'
@@ -68,7 +68,7 @@ def test_simulation_uses_the_snapshot_services(launch_module, params_file):
 
 @pytest.mark.parametrize('params_file', ['scout_params.yaml', 'pioneer_params.yaml'])
 def test_hardware_uses_the_hikvision_driver(launch_module, params_file):
-    parameters = _picture_taker_parameters(launch_module, params_file, use_sim_time=False)
+    parameters = _runtime_parameters(launch_module, params_file, use_sim_time=False)
 
     assert parameters['inspection.service'] == 'hk_camera_rtsp_pub/take_photo'
     assert parameters['inspection.joint_state_topic'] == 'hk_camera_ptz/joint_states'
@@ -109,6 +109,6 @@ def test_params_without_cameras_start_no_picture_taker(launch_module):
 
 
 def test_merge_is_deep(launch_module):
-    merged = launch_module._picture_taker_parameters(
+    merged = launch_module._runtime_parameters(
         {'a': 1, 'cam': {'x': 1, 'y': 2}, 'hardware': {'cam': {'y': 3}}}, use_sim_time=False)
     assert merged == {'a': 1, 'cam': {'x': 1, 'y': 3}}

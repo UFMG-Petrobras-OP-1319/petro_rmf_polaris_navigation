@@ -49,6 +49,13 @@ def _resolve_tf_frame(robot_name, frame, prefix_tf_frames):
     return f'{robot_name}/{frame}'
 
 
+def _runtime_parameters(parameters, use_sim_time):
+    """Select optional hardware overrides for the flat controller parameters."""
+    hardware = parameters.get('hardware') or {}
+    resolved = {key: value for key, value in parameters.items() if key != 'hardware'}
+    return resolved if use_sim_time else {**resolved, **hardware}
+
+
 def _launch_setup(context, *_args, **_kwargs):
     package_name = 'polaris_control'
 
@@ -95,7 +102,9 @@ def _launch_setup(context, *_args, **_kwargs):
     with open(param_config_file, encoding='utf-8') as parameter_file:
         parameter_config = yaml.safe_load(parameter_file)
 
-    controller_parameters = parameter_config['controller']['ros__parameters']
+    controller_parameters = _runtime_parameters(
+        parameter_config['controller']['ros__parameters'], use_sim_time
+    )
     planner_parameters = parameter_config['planner']['ros__parameters']
 
     controller_robot_frame = _resolve_tf_frame(
