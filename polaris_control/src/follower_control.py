@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 
 import math
+import time
+
+from localization_guard import localization_ready
 
 from FollowerControlState import FollowerControlState
 import numpy as np
@@ -59,6 +62,10 @@ class VectorFollowerNode(Node):
         self.declare_parameter('stop_robot_topic', "stop_robot")
         self.declare_parameter('stop_control_topic', "stop_control")
         self.declare_parameter('clear_planner_service', "clear_planner")
+        # Empty topic preserves existing AMCL/simulation behavior.
+        self.declare_parameter('localization_status_topic', '')
+        self.declare_parameter('localization_status_timeout_sec', 1.0)
+        self.declare_parameter('localization_pose_timeout_sec', 0.5)
 
         self.distancia_ponto_controle = self.get_parameter('distancia_ponto_controle').get_parameter_value().double_value
         self.const_vel = self.get_parameter('const_vel').get_parameter_value().double_value
@@ -82,6 +89,22 @@ class VectorFollowerNode(Node):
         self.stop_robot_topic = self.get_parameter('stop_robot_topic').get_parameter_value().string_value
         self.stop_control_topic = self.get_parameter('stop_control_topic').get_parameter_value().string_value
         self.clear_planner_service_name = self.get_parameter('clear_planner_service').get_parameter_value().string_value
+
+        self.localization_status_topic = self.get_parameter('localization_status_topic').value
+        self.localization_status_timeout = self.get_parameter('localization_status_timeout_sec').value
+        self.localization_pose_timeout = self.get_parameter('localization_pose_timeout_sec').value
+        self._localization_status = None
+        self._localization_status_received = None
+        self._localization_pose_received = None
+        self._localization_pose_stamp = None
+        if self.localization_status_topic:
+            if self.pose_topic_type != 'Odometry':
+                raise ValueError('Localization status guard requires Odometry poses')
+            if not all(math.isfinite(v) and v > 0 for v in (
+                    self.localization_status_timeout, self.localization_pose_timeout)):
+                raise ValueError('Localization guard timeouts must be finite and positive')
+            self.create_subscription(String, self.localization_status_topic,
+                                     self._localization_status_callback, 10)
 
         # ## TF2 Listener ##
         if self.pose_topic_type == "TFMessage":
@@ -217,7 +240,28 @@ class VectorFollowerNode(Node):
         self.robot_x = msg.pose.pose.position.x
         self.robot_y = msg.pose.pose.position.y
 
+    def _localization_status_callback(self, msg):
+        self._localization_status = msg.data
+        self._localization_status_received = time.monotonic()
+
+    def _localization_ready(self):
+        if not self.localization_status_topic:
+            return True
+        if any(value is None for value in (
+                self._localization_status_received, self._localization_pose_received,
+                self._localization_pose_stamp)):
+            return False
+        now = time.monotonic()
+        return localization_ready(
+            self._localization_status,
+            now - self._localization_status_received,
+            now - self._localization_pose_received,
+            self.get_clock().now().nanoseconds / 1e9 - self._localization_pose_stamp,
+            self.localization_status_timeout, self.localization_pose_timeout)
+
     def Odometry_callback(self, msg: Odometry):
+        self._localization_pose_received = time.monotonic()
+        self._localization_pose_stamp = msg.header.stamp.sec + msg.header.stamp.nanosec / 1e9
         orientation_q = msg.pose.pose.orientation
         self.theta = quaternion_to_euler_yaw(orientation_q)
         self.robot_x = msg.pose.pose.position.x
@@ -275,6 +319,13 @@ class VectorFollowerNode(Node):
     # ------------------------------------------------------------------ #
 
     def control_loop(self):
+        # Publish a stop every cycle while inhibited. Keep task/FSM requests
+        # pending; fresh localization permits the existing task to continue.
+        if not self._localization_ready():
+            self.cmd_vel_publisher.publish(Twist())
+            self.get_logger().warn('Velocity inhibited: localization missing, lost or stale',
+                                   throttle_duration_sec=2)
+            return
         # --- Update pose from TF when applicable ---
         if self.pose_topic_type == "TFMessage":
             if not self._update_theta_from_tf():
