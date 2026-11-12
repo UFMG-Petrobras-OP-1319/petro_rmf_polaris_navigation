@@ -59,9 +59,9 @@ def _merge(base, override):
     return merged
 
 
-def _picture_taker_parameters(parameters, use_sim_time):
+def _runtime_parameters(parameters, use_sim_time):
     """
-    Resolve the picture_taker parameters for simulation or hardware.
+    Resolve follower or picture_taker parameters for simulation or hardware.
 
     The section describes the simulated robot; its ``hardware`` mapping overrides
     those values on the real robot (use_sim_time false), like the fleet configs do.
@@ -104,7 +104,9 @@ def _launch_setup(context, *args, **kwargs):
 
     with open(param_config_file, encoding='utf-8') as parameter_file:
         parameter_config = yaml.safe_load(parameter_file)
-    follower_parameters = parameter_config['follower_control']['ros__parameters']
+    follower_parameters = _runtime_parameters(
+        parameter_config['follower_control']['ros__parameters'], use_sim_time
+    )
 
     tf_robot_pose = _resolve_tf_frame(
         robot_name,
@@ -162,7 +164,7 @@ def _launch_setup(context, *args, **kwargs):
             namespace=robot_name,
             output='screen',
             parameters=[
-                _picture_taker_parameters(
+                _runtime_parameters(
                     picture_section.get('ros__parameters', {}), use_sim_time
                 ),
                 {

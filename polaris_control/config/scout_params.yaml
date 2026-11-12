@@ -4,6 +4,10 @@ controller:
   ros__parameters:
     speed_ref: 0.3
     convergence_gain: 8.0
+    # Physical Scout first trial; simulation retains the defaults above.
+    hardware:
+      speed_ref: 0.20
+      convergence_gain: 4.0
 
     pose_topic_type: "TFMessage"
     pose_topic_name: "tf"
@@ -62,6 +66,9 @@ follower_control:
     clear_planner_service: "clear_planner"
     kp_pos: 1.0
     kp_orient: 1.0
+    hardware:
+      const_vel: 0.20
+      const_omega: 1.0
 
 
 planner:
