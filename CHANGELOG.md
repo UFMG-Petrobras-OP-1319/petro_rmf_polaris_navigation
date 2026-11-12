@@ -2,6 +2,34 @@
 
 ---
 
+## 2026-10-27 - Follower HOLD state and the picture_taker node
+
+### Added
+
+**`polaris_control/src/picture_taker.py`, `src/picture_rules.py`**
+
+- Takes the fleet's inspection photos on `take_picture_request` and answers on `take_picture_result` (`std_msgs/String` JSON). Waits until the base is still and, for a pan-tilt camera, the joints are within tolerance of where the fleet aimed them, then calls the camera's `hk_camera_interfaces/TakePhoto` service; anything that keeps the photo from being taken is reported as `failed` with the reason.
+- Started by `follower_control.launch.py` from the `picture_taker` section of `scout_params.yaml` / `pioneer_params.yaml`; its `hardware` block applies when `use_sim_time` is false.
+
+### Changed
+
+**`polaris_control/src/follower_control.py`, `src/FollowerControlState.py`**
+
+- `PAN_TILT` is renamed `HOLD`: the base is also held while a photo is taken, not only while the gimbal moves. The enum lives in `src/FollowerControlState.py` on the multi-robot stack, so the state is added there.
+
+---
+
+## 2026-10-18 - Follower Control: PAN_TILT State (#593)
+
+### Changed
+
+**`polaris_control/src/follower_control.py`**
+
+- `/stop_control` now accepts `PAN_TILT`: entering it clears the planner and holds the base still (zero `cmd_vel`, `vec_to_follow` ignored). Only `CONTROL_POSITION` leaves `PAN_TILT`; `ALIGN_YAW` is ignored there.
+- Requires `petro_rmf_utils` with `FollowerControlState.PAN_TILT` (>= `ad3af42`).
+
+---
+
 ## 2026-05-19 - Dual-Mode Follower Control: Orientation-Only P Controller
 
 ### Overview

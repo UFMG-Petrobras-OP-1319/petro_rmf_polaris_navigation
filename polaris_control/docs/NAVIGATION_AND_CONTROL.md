@@ -283,7 +283,8 @@ Use **feedback_linearization** for simple go-to-path behavior. Use **follower_co
 | File | Role |
 |---|---|
 | [`src/feedback_linearization.py`](../src/feedback_linearization.py) | Converts relative `vec_to_follow` → `cmd_vel` without state machine. |
-| [`src/follower_control.py`](../src/follower_control.py) | Same conversion plus FSM for stop, path clear, and yaw alignment. |
+| [`src/follower_control.py`](../src/follower_control.py) | Same conversion plus FSM for stop, path clear, yaw alignment and base hold. |
+| [`src/picture_taker.py`](../src/picture_taker.py) | Takes the fleet's photos once the base is still and the gimbal on target; rules in `src/picture_rules.py`. |
 | [`scripts/robot_simulator.py`](../scripts/robot_simulator.py) | Standalone simulator (TF + markers + fake obstacle) for offline testing. Not started by the main nav launches (commented out). |
 
 ### Configuration
@@ -336,12 +337,51 @@ Param files use ROS 2 node namespaces (`controller:`, `feedback_linearization:`,
 | `/<robot_name>/stop_control` | `String` | External | `follower_control` |
 
 `/<robot_name>/stop_control` is a RELIABLE + TRANSIENT_LOCAL desired-state command, not a
-toggle event. The only accepted values are `ALIGN_YAW` and `CONTROL_POSITION`.
+toggle event. The only accepted values are `ALIGN_YAW`, `CONTROL_POSITION` and
+`HOLD`; `HOLD` holds the base still (zero `cmd_vel`, `vec_to_follow`
+ignored) until `CONTROL_POSITION`. The fleet manager sends it while a camera
+gimbal moves and while `picture_taker` takes a photo (it was named `PAN_TILT`
+before photos used it).
 Publishers must use the same message type and durability. This makes duplicate
 delivery, late-joiner replay, and rapid command replacement idempotent.
-The follower imports the canonical `FollowerControlState` enum from
-`petro_rmf_utils`; `STOPPED` remains an internal FSM state selected through
-`/<robot_name>/stop_robot`, not a valid `/<robot_name>/stop_control` command.
+The follower imports `FollowerControlState` from `src/FollowerControlState.py`,
+installed next to it and kept equal to the one in `petro_rmf_utils`; `STOPPED`
+remains an internal FSM state selected through `/<robot_name>/stop_robot`, not a
+valid `/<robot_name>/stop_control` command.
+
+### Photos for the fleet (`picture_taker`)
+
+`follower_control.launch.py` also starts `src/picture_taker.py` when the params
+file has a `picture_taker` section (`scout_params.yaml`, `pioneer_params.yaml`).
+The fleet manager asks for a photo on `/<robot_name>/take_picture_request` and
+reads the answer on `/<robot_name>/take_picture_result`, both `std_msgs/String`
+JSON, so the fleet depends on no Polaris message type:
+
+```
+request  {"request_id", "camera", "expected_joints": {"pan", "tilt"}?, "timeout_sec"?}
+result   {"request_id", "state": "accepted" | "succeeded" | "failed", "camera",
+          "reason" (failed), "stamp", "joints", "pose",
+          "image": {"format": "jpeg", "width", "height", "data_base64"} (succeeded)}
+```
+
+`cameras` lists the names the fleet uses; each one is `fixed` or `pan_tilt` and
+names the `hk_camera_interfaces/srv/TakePhoto` service that takes its photo. The
+node answers `accepted`, then takes the photo once the robot is ready:
+
+- the base stayed within `still_linear_m` / `still_angular_rad` for
+  `still_window_sec` (pose from `tf_inertial_link <- tf_robot_pose`, the frames
+  the follower uses);
+- for a `pan_tilt` camera with `expected_joints`: fresh `joint_state_topic`
+  feedback, both joints within `tolerance_rad` (pan modulo 2π) for `settle_sec`;
+- the service returns a frame captured after that moment (`TakePhoto.stamp`).
+
+What still blocks the photo at `ready_timeout_sec` (or the request's
+`timeout_sec`) is sent back as `failed` with the reason; the fleet then fails the
+task. `max_width` (0 by default, full resolution) scales wider photos down.
+The section describes the simulated robot; its `hardware` mapping overrides those
+values when `use_sim_time` is false (the Hikvision driver's service and joint
+states instead of the simulated ones). The rules are in `src/picture_rules.py`
+(no ROS), tested by `test/test_picture_rules.py`.
 
 ### Services (polaris_planning)
 

@@ -38,6 +38,8 @@ def _tf_topic(namespace_tf):
 
 def _resolve_tf_frame(robot_name, frame, prefix_tf_frames):
     """Prefix robot-local TF frames while preserving global ``sim_world``."""
+    if frame == '{robot_name}':
+        return robot_name
     if not frame or frame == 'sim_world' or frame == 'world':
         return frame
     if not prefix_tf_frames:
@@ -45,6 +47,13 @@ def _resolve_tf_frame(robot_name, frame, prefix_tf_frames):
     if frame == robot_name or frame.startswith(f'{robot_name}/'):
         return frame
     return f'{robot_name}/{frame}'
+
+
+def _runtime_parameters(parameters, use_sim_time):
+    """Select optional hardware overrides for the flat controller parameters."""
+    hardware = parameters.get('hardware') or {}
+    resolved = {key: value for key, value in parameters.items() if key != 'hardware'}
+    return resolved if use_sim_time else {**resolved, **hardware}
 
 
 def _launch_setup(context, *_args, **_kwargs):
@@ -93,7 +102,9 @@ def _launch_setup(context, *_args, **_kwargs):
     with open(param_config_file, encoding='utf-8') as parameter_file:
         parameter_config = yaml.safe_load(parameter_file)
 
-    controller_parameters = parameter_config['controller']['ros__parameters']
+    controller_parameters = _runtime_parameters(
+        parameter_config['controller']['ros__parameters'], use_sim_time
+    )
     planner_parameters = parameter_config['planner']['ros__parameters']
 
     controller_robot_frame = _resolve_tf_frame(
