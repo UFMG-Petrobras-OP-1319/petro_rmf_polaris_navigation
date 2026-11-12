@@ -80,6 +80,8 @@ def test_hardware_uses_the_hikvision_driver(launch_module, params_file):
         assert parameters['inspection.aim_pan_cmd_topic'] == 'pan_camera_cmd'
         assert parameters['inspection.aim_tilt_cmd_topic'] == 'tilt_camera_cmd'
         assert parameters['ready_timeout_sec'] == 8.0
+        assert parameters['still_window_sec'] == 2.0
+        assert parameters['inspection.settle_sec'] == 3.0
     else:
         assert not parameters.get('inspection.return_to_forward', False)
         assert not parameters.get('inspection.aim_pan_cmd_topic', '')

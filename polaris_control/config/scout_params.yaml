@@ -129,9 +129,11 @@ picture_taker:
     max_width: 0                 # 0 = full resolution; otherwise scale wider photos down
     jpeg_quality: 90             # only used when a photo is re-encoded
     hardware:
+      still_window_sec: 2.0        # let chassis vibration settle before a hardware photo
       ready_timeout_sec: 8.0       # reserve the manager's remaining budget for capture and return
       inspection:
         service: "hk_camera_rtsp_pub/take_photo"
+        settle_sec: 3.0             # allow PTZ vibration/autofocus and RTSP lag to settle
         joint_state_topic: "hk_camera_ptz/joint_states"
         # Hardware PTZ coordinates are software-zeroed in hk_camera using the
         # persisted 160/15 raw mount offsets; photo home is logical 0/0/1x.

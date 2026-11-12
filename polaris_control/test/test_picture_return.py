@@ -97,6 +97,7 @@ class Harness:
     _on_return_position = PictureTaker._on_return_position
     _measured_return_position = PictureTaker._measured_return_position
     _readiness = PictureTaker._readiness
+    _retry_capture = PictureTaker._retry_capture
 
     def __init__(self, tmp_path, config):
         self.time = 10.0
@@ -124,6 +125,7 @@ class Harness:
         self.camera_errors = {}
         self.cameras = {config.name: config}
         self.ready_timeout = 15.0
+        self.still_window = 1.0
         self.service_timeout = 5.0
 
     def _now(self):
@@ -329,3 +331,43 @@ def test_manager_cached_target_is_reissued_once_after_the_camera_returned_home(
     node._readiness(10.1)
     assert node.aim_publishers['inspection'][0].messages == [0.2]
     assert node.aim_publishers['inspection'][1].messages == [-0.1]
+
+
+def test_frame_readiness_starts_after_full_base_and_gimbal_settling(tmp_path):
+    node = Harness(tmp_path, camera(settle_sec=3.0))
+    node.still_window = 2.0
+    node.pose_max_age = 1.0
+    node.stillness = SimpleNamespace(still_since=lambda _now: 7.0)
+    node.clients_by_camera = {'inspection': SimpleNamespace(service_is_ready=lambda: True)}
+    node.job.request = rules.PictureRequest(
+        'shot-1', 'inspection', dict(node.joints), 30.0)
+    for now in (10.0, 12.9):
+        node.pose_time = now
+        ready, reasons = node._readiness(now)
+        assert ready is None
+        assert 'gimbal settling' in reasons
+    node.pose_time = 13.0
+    ready, reasons = node._readiness(13.0)
+    assert not reasons
+    assert ready == 13.0  # start at 10 plus all three settling seconds
+    # A later base stillness window also bounds the accepted frame timestamp.
+    node.stillness = SimpleNamespace(still_since=lambda _now: 12.0)
+    node.pose_time = 14.0
+    ready, reasons = node._readiness(14.0)
+    assert not reasons
+    assert ready == 14.0
+
+
+def test_cached_frame_from_inside_settling_window_is_retried(tmp_path):
+    node = Harness(tmp_path, camera(settle_sec=3.0))
+    node.job.phase = CAPTURING
+    node.job.ready_since = 13.0
+    node.job.deadline = 20.0
+    node.job.future = Future()
+    node.job.future.set_result(SimpleNamespace(
+        success=True, message='', stamp=SimpleNamespace(sec=12, nanosec=800000000)))
+    node._check_capture(14.0)
+    assert node.job.phase == 'waiting'
+    assert node.job.last_camera_error == 'frame older than the ready moment'
+    assert node.results == []
+    assert not Path(node._photo_path()).exists()
