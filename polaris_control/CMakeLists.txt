@@ -123,6 +123,7 @@ install(PROGRAMS
   src/FollowerControlState.py
   src/picture_taker.py
   src/picture_rules.py
+  src/capture_delivery.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

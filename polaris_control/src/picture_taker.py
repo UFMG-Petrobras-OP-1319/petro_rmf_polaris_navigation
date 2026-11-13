@@ -25,11 +25,13 @@ Cameras are configured by the name the fleet uses (default, inspection, ...):
 """
 
 from collections import deque
+from datetime import datetime, timezone
 import math
 import os
 import re
 
 from hk_camera_interfaces.srv import TakePhoto
+from capture_delivery import CaptureDelivery
 import picture_rules as rules
 import rclpy
 from rclpy.duration import Duration
@@ -121,6 +123,14 @@ class PictureTaker(Node):
                 self.get_logger().error(f'Unusable camera: {error}')
 
         os.makedirs(self.photo_dir, exist_ok=True)
+        robot_name = self.get_namespace().strip('/')
+        outbox_root = os.environ.get('POLARIS_CAPTURE_OUTBOX_DIR',
+                                     os.path.expanduser('~/.local/state/polaris/captures'))
+        outbox_dir = self.declare_parameter('capture_outbox_dir',
+                                           os.path.join(outbox_root, robot_name)).value
+        self.capture_delivery = CaptureDelivery(
+            outbox_dir, robot_name, token=os.environ.get('DATA_COLLECTOR_API_TOKEN', ''),
+            logger=self.get_logger())
 
         request_qos = QoSProfile(
             history=QoSHistoryPolicy.KEEP_LAST,
@@ -136,6 +146,8 @@ class PictureTaker(Node):
         )
         self.result_publisher = self.create_publisher(String, self.result_topic, result_qos)
         self.create_subscription(String, self.request_topic, self._on_request, request_qos)
+        self.create_subscription(String, 'data_collector/service_info',
+                                 self._on_collector_info, request_qos)
 
         self.clients_by_camera = {}
         self.joint_states = {}
@@ -223,7 +235,7 @@ class PictureTaker(Node):
             return
 
         # The request topic is transient-local: a reconnect replays the last request
-        if request.request_id in self.seen_requests:
+        if request.request_id in self.seen_requests or self.capture_delivery.has_capture(request.request_id):
             return
         self.seen_requests.append(request.request_id)
 
@@ -401,14 +413,31 @@ class PictureTaker(Node):
         except (OSError, ValueError) as error:
             self._finish_failed(f'could not read the photo {path}: {error}')
             return
-        finally:
-            if not self.keep_photos and os.path.exists(path):
-                os.remove(path)
-
         joints = None
         if job.camera.kind == rules.PAN_TILT:
             joints, _ = self._measured_joints(job.camera)
         request_id = job.request.request_id
+        # Persist the robot's own capture before the existing fleet result is sent.
+        # Only the collector knows which mission/target this opaque ID belongs to.
+        try:
+            simulation = bool(self.get_parameter('use_sim_time').value)
+            self.capture_delivery.enqueue(request_id, jpeg, {
+                'camera': job.camera.name,
+                'captured_at_utc': (datetime.fromtimestamp(stamp if stamp > 0 else now, timezone.utc).isoformat()
+                                    if not simulation else None),
+                'capture_stamp': stamp if stamp > 0.0 else now,
+                'capture_stamp_ns': str(response.stamp.sec * 1_000_000_000 + response.stamp.nanosec)
+                                    if stamp > 0 else str(round(now * 1e9)),
+                'capture_clock': 'ros' if simulation else 'utc',
+                'pose': dict(self.pose, frame_id=self.tf_inertial_link,
+                             robot_frame=self.tf_robot_pose),
+                'joints': joints,
+            })
+        except Exception as error:
+            self._finish_failed(f'could not persist the captured photo: {error}')
+            return
+        if not self.keep_photos and os.path.exists(path):
+            os.remove(path)
         self._publish(rules.succeeded(
             request_id, job.camera.name, jpeg, width, height,
             stamp if stamp > 0.0 else now, joints, self.pose,
@@ -428,6 +457,16 @@ class PictureTaker(Node):
 
     def _publish(self, text):
         self.result_publisher.publish(String(data=text))
+
+    def _on_collector_info(self, msg):
+        try:
+            self.capture_delivery.discover(msg.data)
+        except (ValueError, TypeError, KeyError) as error:
+            self.get_logger().warning(f'Ignored collector descriptor: {error}')
+
+    def destroy_node(self):
+        self.capture_delivery.close()
+        return super().destroy_node()
 
 
 def main(args=None):
