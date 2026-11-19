@@ -26,7 +26,7 @@ def launch_module(monkeypatch):
     return module
 
 
-def _picture_taker_parameters(module, params_file, use_sim_time):
+def _runtime_parameters(module, params_file, use_sim_time):
     context = LaunchContext()
     context.launch_configurations.update({
         'robot_name': 'scout_1',
@@ -54,22 +54,37 @@ def _picture_taker_parameters(module, params_file, use_sim_time):
 
 @pytest.mark.parametrize('params_file', ['scout_params.yaml', 'pioneer_params.yaml'])
 def test_simulation_uses_the_snapshot_services(launch_module, params_file):
-    parameters = _picture_taker_parameters(launch_module, params_file, use_sim_time=True)
+    parameters = _runtime_parameters(launch_module, params_file, use_sim_time=True)
 
     assert list(parameters['cameras']) == ['default', 'inspection']
     assert parameters['default.service'] == 'fixed_camera_snapshot/take_photo'
     assert parameters['inspection.service'] == 'ptz_camera_snapshot/take_photo'
     assert parameters['inspection.joint_state_topic'] == 'joint_states'
+    assert not parameters.get('inspection.return_to_forward', False)
+    assert not parameters.get('inspection.aim_pan_cmd_topic', '')
     assert parameters['tf_inertial_link'] == 'sim_world'
     assert not any(key.startswith('hardware') for key in parameters)
 
 
 @pytest.mark.parametrize('params_file', ['scout_params.yaml', 'pioneer_params.yaml'])
 def test_hardware_uses_the_hikvision_driver(launch_module, params_file):
-    parameters = _picture_taker_parameters(launch_module, params_file, use_sim_time=False)
+    parameters = _runtime_parameters(launch_module, params_file, use_sim_time=False)
 
     assert parameters['inspection.service'] == 'hk_camera_rtsp_pub/take_photo'
     assert parameters['inspection.joint_state_topic'] == 'hk_camera_ptz/joint_states'
+    if params_file == 'scout_params.yaml':
+        assert parameters['inspection.return_to_forward']
+        assert parameters['inspection.forward_pan_rad'] == 0.0
+        assert parameters['inspection.forward_tilt_rad'] == 0.0
+        assert parameters['inspection.forward_zoom'] == 1.0
+        assert parameters['inspection.aim_pan_cmd_topic'] == 'pan_camera_cmd'
+        assert parameters['inspection.aim_tilt_cmd_topic'] == 'tilt_camera_cmd'
+        assert parameters['ready_timeout_sec'] == 8.0
+        assert parameters['still_window_sec'] == 2.0
+        assert parameters['inspection.settle_sec'] == 3.0
+    else:
+        assert not parameters.get('inspection.return_to_forward', False)
+        assert not parameters.get('inspection.aim_pan_cmd_topic', '')
     # Untouched by the overrides
     assert parameters['inspection.tolerance_rad'] == 0.05
     assert parameters['default.service'] == 'fixed_camera_snapshot/take_photo'
@@ -94,6 +109,6 @@ def test_params_without_cameras_start_no_picture_taker(launch_module):
 
 
 def test_merge_is_deep(launch_module):
-    merged = launch_module._picture_taker_parameters(
+    merged = launch_module._runtime_parameters(
         {'a': 1, 'cam': {'x': 1, 'y': 2}, 'hardware': {'cam': {'y': 3}}}, use_sim_time=False)
     assert merged == {'a': 1, 'cam': {'x': 1, 'y': 3}}
