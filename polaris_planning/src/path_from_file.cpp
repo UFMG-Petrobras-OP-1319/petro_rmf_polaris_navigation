@@ -30,8 +30,8 @@ public:
         this->declare_parameter<int>("path_number", 1);
         this->declare_parameter<double>("marker_scale", 0.03);
         this->declare_parameter<std::string>("frame_id", "map");
-        this->declare_parameter<std::string>("path_topic_name", "/espeleo/path");
-        this->declare_parameter<std::string>("visualization_topic_name", "/visual_path");
+        this->declare_parameter<std::string>("path_topic_name", "espeleo/path");
+        this->declare_parameter<std::string>("visualization_topic_name", "visual_path");
 
         // Get parameters
         pkg_path_ = this->get_parameter("pkg_path").as_string();
