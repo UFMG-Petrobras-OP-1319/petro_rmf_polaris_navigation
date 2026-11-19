@@ -286,3 +286,68 @@ def test_launch_setup_keeps_sim_world_global(
             found_global_parent = True
 
     assert found_global_parent
+
+
+def _motion_launch_parameters(module, use_sim_time, params_file, **overrides):
+    context = LaunchContext()
+    context.launch_configurations.update({
+        'robot_name': 'scout_1', 'params_file': params_file,
+        'namespace_tf': 'true', 'prefix_tf_frames': 'true',
+        'use_sim_time': str(use_sim_time).lower(),
+        'tf_robot_pose': '', 'tf_reference_frame': '', 'tf_inertial_link': '',
+        'speed_ref': '', 'convergence_gain': '',
+        'add_measurement_noise': 'false',
+        'noise_mean_position': '0.0', 'noise_stddev_position': '0.0',
+        'noise_mean_yaw': '0.0', 'noise_stddev_yaw': '0.0',
+        'kp_pos': '1.0', 'kp_orient': '1.0',
+        **overrides,
+    })
+    for action in module._launch_setup(context):
+        if action.node_executable not in ('vector_field_controller', 'follower_control.py'):
+            continue
+        action._perform_substitutions(context)
+        parameters = {}
+        for values in evaluate_parameters(context, action._Node__parameters):
+            if isinstance(values, dict):
+                parameters.update(values)
+        return parameters
+    raise AssertionError('motion node missing from launch')
+
+
+@pytest.mark.parametrize('use_sim_time', [True, False])
+def test_scout_hardware_motion_trial_is_selected_only_for_physical_runtime(
+        launch_module, use_sim_time):
+    parameters = _motion_launch_parameters(
+        launch_module, use_sim_time, 'scout_params.yaml')
+    assert not any(key == 'hardware' or key.startswith('hardware.') for key in parameters)
+    if 'speed_ref' in parameters:
+        assert parameters['speed_ref'] == (0.30 if use_sim_time else 0.20)
+        assert parameters['convergence_gain'] == (8.0 if use_sim_time else 4.0)
+    else:
+        assert parameters['const_vel'] == (0.30 if use_sim_time else 0.20)
+        assert parameters['const_omega'] == (2.0 if use_sim_time else 1.0)
+        assert parameters['distancia_ponto_controle'] == 0.15
+        assert parameters['kp_pos'] == parameters['kp_orient'] == 1.0
+        assert parameters['control_period'] == 0.05
+
+
+@pytest.mark.parametrize('use_sim_time', [True, False])
+def test_pioneer_motion_values_are_preserved(launch_module, use_sim_time):
+    parameters = _motion_launch_parameters(
+        launch_module, use_sim_time, 'pioneer_params.yaml')
+    config = yaml.safe_load(
+        (POLARIS_ROOT / 'polaris_control/config/pioneer_params.yaml').read_text())
+    node = 'controller' if 'speed_ref' in parameters else 'follower_control'
+    expected = config[node]['ros__parameters']
+    keys = ('speed_ref', 'convergence_gain') if node == 'controller' else ('const_vel', 'const_omega')
+    for key in keys:
+        assert parameters[key] == expected[key]
+
+
+def test_explicit_navigation_launch_gains_override_the_hardware_trial(monkeypatch):
+    module = _load_launch_module('navigation.launch.py')
+    monkeypatch.setattr(module, 'FindPackageShare', lambda _package: _PackageShare())
+    parameters = _motion_launch_parameters(
+        module, False, 'scout_params.yaml', speed_ref='0.12', convergence_gain='2.0')
+    assert parameters['speed_ref'] == 0.12
+    assert parameters['convergence_gain'] == 2.0
