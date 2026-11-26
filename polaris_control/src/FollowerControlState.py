@@ -22,3 +22,6 @@ class FollowerControlState(Enum):
     # CONTROL_POSITION. The fleet manager asks for it while the camera gimbal
     # moves and while a photo is taken (it was PAN_TILT before photos used it).
     HOLD = "HOLD"
+    # Another controller (e.g. the Nav2 docking server) owns the base. The
+    # follower forwards its fresh velocity commands and otherwise holds zero.
+    EXTERNAL = "EXTERNAL"
