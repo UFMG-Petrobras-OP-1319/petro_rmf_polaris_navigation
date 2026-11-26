@@ -63,9 +63,9 @@ private:
     std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
 
     void loadParameters() {
-        input_topic_ = declare_parameter<std::string>("input_topic", "/scan");
+        input_topic_ = declare_parameter<std::string>("input_topic", "scan");
         output_topic_ = declare_parameter<std::string>("output_topic", "closest_obstacle");
-        visualization_topic_ = declare_parameter<std::string>("visualization_topic", "/obstacle_clusters");
+        visualization_topic_ = declare_parameter<std::string>("visualization_topic", "obstacle_clusters");
         laser_frame_ = declare_parameter<std::string>("laser_frame", "base_scan");
         world_frame_ = declare_parameter<std::string>("world_frame", "odom");
         eps_ = declare_parameter<double>("eps", 0.3);

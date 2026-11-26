@@ -43,9 +43,9 @@ class VectorFollowerNode(Node):
         self.declare_parameter('escape_duration', 2.0)
         self.declare_parameter('noise_magnitude', 0.4)
         self.declare_parameter('control_period', 0.05)
-        self.declare_parameter('cmd_vel_topic', "/cmd_vel")
-        self.declare_parameter('vec_to_follow_topic', "/vec_to_follow")
-        self.declare_parameter('pose_topic', "/Odometry")
+        self.declare_parameter('cmd_vel_topic', "cmd_vel")
+        self.declare_parameter('vec_to_follow_topic', "vec_to_follow")
+        self.declare_parameter('pose_topic', "Odometry")
         self.declare_parameter('pose_topic_type', "TFMessage")
         self.declare_parameter('tf_robot_pose', "body")
         self.declare_parameter('tf_inertial_link', "camera_init")
@@ -130,7 +130,7 @@ class VectorFollowerNode(Node):
         self.current_vector = msg
 
     def amcl_pose_callback(self, msg):
-        """Callback para PoseWithCovarianceStamped (ex.: /amcl_pose). Atualiza theta (yaw)."""
+        """Atualiza yaw a partir de uma PoseWithCovarianceStamped."""
         # Extrai o quaternion da mensagem de pose
         orientation_q = msg.pose.pose.orientation
         # Converte o quaternion para o ângulo yaw (theta) e armazena
@@ -138,7 +138,7 @@ class VectorFollowerNode(Node):
         # self.get_logger().info("Entrei no callback...", throttle_duration_sec=5)
     
     def Odometry_callback(self, msg):
-        """Callback para o tópico /Odometry. Atualiza a orientação (theta) do robô."""
+        """Atualiza yaw a partir da odometria configurada."""
         orientation_q = msg.pose.pose.orientation
         self.theta = quaternion_to_euler_yaw(orientation_q)
 
@@ -166,7 +166,10 @@ class VectorFollowerNode(Node):
     def control_loop(self):
         """Loop principal que calcula e publica os comandos de velocidade."""
         if self.current_vector is None:
-            self.get_logger().info("Aguardando vetor no tópico /vec_to_follow...", throttle_duration_sec=5)
+            self.get_logger().info(
+                f"Aguardando vetor no tópico {self.vec_to_follow_topic}...",
+                throttle_duration_sec=5,
+            )
             return
 
         if self.pose_topic_type == "TFMessage":
@@ -178,7 +181,7 @@ class VectorFollowerNode(Node):
                 return
 
         elif self.pose_topic_type in ("PoseWithCovarience", "PoseWithCovarianceStamped"):
-            # TF em cada tick; /amcl_pose só preenche self.theta se o TF ainda não existir.
+            # TF em cada tick; a pose só preenche theta até o TF estar pronto.
             self._update_theta_from_tf()
 
         if self.theta is None:

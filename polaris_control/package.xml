@@ -37,21 +37,28 @@
   <!-- 4. Math/Utility Dependencies -->
   <!-- ============================================== -->
   <depend>eigen3_cmake_module</depend>
-  
+
   <!-- ============================================== -->
   <!-- 5. Execution Dependencies -->
   <!-- ============================================== -->
   <exec_depend>ros2launch</exec_depend>
   <exec_depend>rviz2</exec_depend>
   <exec_depend>launch_ros</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
+  <exec_depend>nav2_common</exec_depend>
   <exec_depend>robot_state_publisher</exec_depend>
   <exec_depend>joint_state_publisher</exec_depend>
   <exec_depend>petro_rmf_utils</exec_depend>
+  <!-- picture_taker: the camera photo service, image handling -->
+  <exec_depend>hk_camera_interfaces</exec_depend>
+  <exec_depend>python3-opencv</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
   <depend>rclpy</depend>
 
   <!-- ============================================== -->
   <!-- 6. Testing Dependencies -->
   <!-- ============================================== -->
+  <test_depend>ament_cmake_pytest</test_depend>
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
 
