@@ -37,6 +37,8 @@ def _tf_topic(namespace_tf):
 
 def _resolve_tf_frame(robot_name, frame, prefix_tf_frames):
     """Prefix robot-local TF frames while preserving global ``sim_world``."""
+    if frame == '{robot_name}':
+        return robot_name
     if not frame or frame == 'sim_world' or frame == 'world':
         return frame
     if not prefix_tf_frames:
@@ -44,6 +46,29 @@ def _resolve_tf_frame(robot_name, frame, prefix_tf_frames):
     if frame == robot_name or frame.startswith(f'{robot_name}/'):
         return frame
     return f'{robot_name}/{frame}'
+
+
+def _merge(base, override):
+    """Return base with override merged in; nested mappings merge key by key."""
+    merged = dict(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def _runtime_parameters(parameters, use_sim_time):
+    """
+    Resolve follower or picture_taker parameters for simulation or hardware.
+
+    The section describes the simulated robot; its ``hardware`` mapping overrides
+    those values on the real robot (use_sim_time false), like the fleet configs do.
+    """
+    hardware = parameters.get('hardware') or {}
+    resolved = {key: value for key, value in parameters.items() if key != 'hardware'}
+    return resolved if use_sim_time else _merge(resolved, hardware)
 
 
 def _launch_setup(context, *args, **kwargs):
@@ -79,7 +104,9 @@ def _launch_setup(context, *args, **kwargs):
 
     with open(param_config_file, encoding='utf-8') as parameter_file:
         parameter_config = yaml.safe_load(parameter_file)
-    follower_parameters = parameter_config['follower_control']['ros__parameters']
+    follower_parameters = _runtime_parameters(
+        parameter_config['follower_control']['ros__parameters'], use_sim_time
+    )
 
     tf_robot_pose = _resolve_tf_frame(
         robot_name,
@@ -125,8 +152,31 @@ def _launch_setup(context, *args, **kwargs):
         ],
         remappings=tf_remappings,
     )
+    nodes = [feedback_node]
 
-    return [feedback_node]
+    # Photos the fleet asks for, on robots whose params file describes their cameras
+    picture_section = parameter_config.get('picture_taker')
+    if picture_section:
+        nodes.append(Node(
+            package=package_name,
+            executable='picture_taker.py',
+            name='picture_taker',
+            namespace=robot_name,
+            output='screen',
+            parameters=[
+                _runtime_parameters(
+                    picture_section.get('ros__parameters', {}), use_sim_time
+                ),
+                {
+                    'use_sim_time': use_sim_time,
+                    'tf_robot_pose': tf_robot_pose,
+                    'tf_inertial_link': tf_inertial_link,
+                },
+            ],
+            remappings=tf_remappings,
+        ))
+
+    return nodes
 
 
 def generate_launch_description():
