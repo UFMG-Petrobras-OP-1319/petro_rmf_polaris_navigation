@@ -124,6 +124,7 @@ install(PROGRAMS
   src/picture_taker.py
   src/picture_rules.py
   src/capture_delivery.py
+  src/follower_fsm.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
@@ -180,6 +181,10 @@ if(BUILD_TESTING)
   ament_add_pytest_test(
     test_picture_return
     test/test_picture_return.py
+  )
+  ament_add_pytest_test(
+    test_follower_fsm
+    test/test_follower_fsm.py
   )
 endif()
 
